@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
+import numpy as np
 from audio_input import record_audio
 from analyzer import plot_fft, extract_impulse_response
 
@@ -43,6 +44,5 @@ class AudioApp(tk.Tk):
         self.canvas.draw()
 
 if __name__ == "__main__":
-    import numpy as np  # Necessari per FFT
     app = AudioApp()
     app.mainloop()
