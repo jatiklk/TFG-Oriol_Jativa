@@ -1,6 +1,5 @@
 # main.py
 import audio_dspy
-from audio_dspy.farina import generate_farina_sweep
 from audio_input import record_audio
 from analyzer import plot_fft, extract_fundamental_note, extract_impulse_response
 from gui_app import AudioApp

@@ -1,4 +1,5 @@
 import numpy as np
+#import audio_dspy as dsp
 import matplotlib.pyplot as plt
 
 def plot_fft(signal, fs):
@@ -55,7 +56,7 @@ def extract_impulse_response(signal, fs):
     return autocorr
 
 
-def compute_THD(signal, fs, N, H):
+def compute_THD(signal, fs, N, H=6):
     """
     Calcula la distorsió harmònica total (THD) de la senyal.
     Retorna el valor THD en percentatge.
@@ -67,7 +68,8 @@ def compute_THD(signal, fs, N, H):
     freqs = freqs[:N//2]
 
     # troba la freqüència fonamental idx_fund
-    f0, idx_peack = extract_fundamental_note(signal, fs)
+    idx_peack = np.argmax(magnitude[1:]) + 1
+    f0 = freqs[idx_peack]
 
     # busca harmònics (2a a H), amb el paràmetre H triem fins a quants harmónics volem agafar
     thd_numerador = 0
@@ -102,7 +104,7 @@ def compute_THDN(signal, fs, N, f0_hint=None):
     else:
         f0_est, _ = extract_fundamental_note(x, fs) 
 
-    # reconstrueix la component fonamental per projecció sin/cos i fem una projecció lineal
+    # reconstrueix la component fonamental per projecció sin/cos i fem una projecció lineal (Fourier)
     t = np.arange(N) / fs
     s = np.sin(2*np.pi*f0_est*t)
     c = np.cos(2*np.pi*f0_est*t)
@@ -119,3 +121,58 @@ def compute_THDN(signal, fs, N, f0_hint=None):
     thdn_percent = (rms_resid / rms_fund) * 100.0
 
     return thdn_percent
+
+#per treballar amb sweep ara
+
+def segment_signal(signal, num_partitions):
+    """
+    Divideixo la senyal en segments per poder calcular posteriorment la THD per parts.
+    Retorna una array de segments del senyal.
+    """
+    segment_length = len(signal) // num_partitions
+    segments = []
+    for i in range(num_partitions):
+        start_index = i * segment_length
+        end_index = start_index + segment_length
+        segments.append(signal[start_index:end_index])
+    return segments
+
+def compute_THD_sweep(signal, num_partitions, segment_length=2048):
+    """
+    Calculem el THD de cada segment per poder plotejar el resultat de manera gràfica.
+    Retornem una array de valors i freqs.
+    """
+    signal_segments = segment_signal(signal, num_partitions)
+    thd_values = []
+    dominant_frequencies = []
+    fs = 48000
+
+    for segment in signal_segments:
+        # Calculate THD
+        thd = compute_THD(segment, fs, len(segment))
+        thd_values.append(thd)
+
+        # Calculate dominant frequency
+        spectrum = np.fft.fft(segment)
+        freqs = np.fft.fftfreq(len(segment), 1/fs)
+        magnitude = np.abs(spectrum[:len(segment)//2])
+        freqs = freqs[:len(segment)//2]
+
+        # Find the index of the peak magnitude in the positive frequency range (excluding DC)
+        idx_peak = np.argmax(magnitude[1:]) + 1
+        dominant_freq = freqs[idx_peak]
+        dominant_frequencies.append(dominant_freq)
+    
+    return thd_values, dominant_frequencies
+
+def plot_THDs(thd_values, dominant_frequencies):
+    """
+    Plotejem la gràfica amb punts. 
+    """
+    plt.figure(figsize=(12, 6))
+    plt.scatter(dominant_frequencies, thd_values, s=10)
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("THD (%)")
+    plt.title("THD vs. Frequency")
+    plt.grid(True)
+    plt.show()
