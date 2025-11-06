@@ -30,6 +30,32 @@ def synth_tone_with_thd(fs=48000, dur=2.0, f0=1000.0, thd_target=0.05,  n_harm=5
     x = x / np.max(np.abs(x)) * peak
     return x.astype(np.float32)
 
+def synth_tone_with_thd_and_noise(fs=48000, dur=2.0, f0=1000.0, thd_target=0.05,  n_harm=5, decay=0.6, peak=0.9, noise_level=0.01):
+    """
+    Generem un to amb una THD específica i afegim soroll gaussià.
+    """
+    t = np.arange(int(fs*dur))/fs
+    # repartim els harmónics de manera geométrica
+    rel = np.array([decay**(n-2) for n in range(2, n_harm+1)])
+    rel = rel / np.linalg.norm(rel)
+
+    # inicialitzem amplituds
+    A1 = 1.0
+    Ahs = thd_target * rel  # vector d'amplituds
+
+    # senyal i normalitzem
+    x = A1*np.sin(2*np.pi*f0*t)
+    for n, Ah in enumerate(Ahs, start=2):
+        x += Ah*np.sin(2*np.pi*(n*f0)*t)
+
+    # afegim soroll gaussià
+    noise = np.random.normal(0, noise_level, len(x))
+    x += noise
+
+    # normalitzar a 'peak'
+    x = x / np.max(np.abs(x)) * peak
+    return x.astype(np.float32)
+
 def soft_clip_tanh(x, dist=5.0):
     """
     Generem un to amb una distorsió suau tipus soft cliper, regulem el nivell de distorsió amb 'dist'

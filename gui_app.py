@@ -5,7 +5,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import numpy as np
 from audio_input import record_audio
-from analyzer import plot_fft, extract_impulse_response, compute_THD
+from analyzer_THD import plot_fft, extract_impulse_response, compute_THD
 
 class AudioApp(tk.Tk):
     def __init__(self):

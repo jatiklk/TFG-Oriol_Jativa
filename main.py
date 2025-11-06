@@ -1,7 +1,7 @@
 # main.py
 import audio_dspy
 from audio_input import record_audio
-from analyzer import plot_fft, extract_fundamental_note, extract_impulse_response
+from analyzer_THD import plot_fft, extract_fundamental_note, extract_impulse_response
 from gui_app import AudioApp
 import matplotlib.pyplot as plt
 

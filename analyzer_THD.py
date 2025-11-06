@@ -148,17 +148,15 @@ def compute_THD_sweep(signal, num_partitions, segment_length=2048):
     fs = 48000
 
     for segment in signal_segments:
-        # Calculate THD
+        #calculem la thd de cada segment
         thd = compute_THD(segment, fs, len(segment))
         thd_values.append(thd)
-
-        # Calculate dominant frequency
+        #calculem la freq dominant de cada segment
         spectrum = np.fft.fft(segment)
         freqs = np.fft.fftfreq(len(segment), 1/fs)
         magnitude = np.abs(spectrum[:len(segment)//2])
         freqs = freqs[:len(segment)//2]
-
-        # Find the index of the peak magnitude in the positive frequency range (excluding DC)
+        #trobem el pic màxim (ignora DC)
         idx_peak = np.argmax(magnitude[1:]) + 1
         dominant_freq = freqs[idx_peak]
         dominant_frequencies.append(dominant_freq)
@@ -167,7 +165,7 @@ def compute_THD_sweep(signal, num_partitions, segment_length=2048):
 
 def plot_THDs(thd_values, dominant_frequencies):
     """
-    Plotejem la gràfica amb punts. 
+    Plotejem la gràfica. 
     """
     plt.figure(figsize=(12, 6))
     plt.scatter(dominant_frequencies, thd_values, s=10)
@@ -175,4 +173,7 @@ def plot_THDs(thd_values, dominant_frequencies):
     plt.ylabel("THD (%)")
     plt.title("THD vs. Frequency")
     plt.grid(True)
+    plt.xscale('log') # Set the x-axis scale to logarithmic
+    plt.xlim([20, 20000]) # Set the x-axis limits from 20 Hz to 20 kHz
+    plt.text(0.7, 0.85, f'Mean THD: {np.mean(thd_values):.2f}%', transform=plt.gca().transAxes, fontsize=10, verticalalignment='top')
     plt.show()
