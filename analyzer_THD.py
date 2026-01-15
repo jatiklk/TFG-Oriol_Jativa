@@ -1,6 +1,7 @@
 import numpy as np
 #import audio_dspy as dsp
 import matplotlib.pyplot as plt
+import audio_dspy as adspy
 
 def plot_fft(signal, fs):
     N = len(signal)
@@ -32,19 +33,6 @@ def extract_fundamental_note(signal, fs):
 
     return fundamental_freq, idx_peak
 
-def freq_to_note(freq):
-    """
-    Converteix una freqüència a nom de nota (A4 = 440 Hz).
-    """
-    if freq <= 0:
-        return "Unknown"
-    A4 = 440.0
-    notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    n = int(round(12 * np.log2(freq / A4)))
-    note_index = (n + 9) % 12  # A4 és el 9è index
-    octave = 4 + ((n + 9) // 12)
-    return f"{notes[note_index]}{octave}"
-
 def extract_impulse_response(signal, fs):
     """
     Calcula una resposta impulsiva simple (autocorrelació normalitzada).
@@ -55,8 +43,7 @@ def extract_impulse_response(signal, fs):
     autocorr /= np.max(np.abs(autocorr))
     return autocorr
 
-
-def compute_THD(signal, fs, N, H=6):
+def compute_THD_F(signal, fs, N, H=6):
     """
     Calcula la distorsió harmònica total (THD) de la senyal.
     Retorna el valor THD en percentatge.
@@ -82,6 +69,40 @@ def compute_THD(signal, fs, N, H=6):
     thd = np.sqrt(thd_numerador) / magnitude[idx_peack]
     thd_percent = thd * 100
     return thd_percent   
+
+def compute_THD_rms(signal, fs, N, H=6):
+    """
+    Calcula la distorsió harmònica total (THD-R) d'una senyal, amb el RMS i no amb la fonamenal.
+    Retornem el THD-R en %.
+    """
+    # N = len(signal) li pasem per parametre ara
+    spectrum = np.fft.fft(signal) 
+    freqs = np.fft.fftfreq(N, 1/fs)
+    magnitude = np.abs(spectrum[:N//2])
+    freqs = freqs[:N//2]
+
+    # troba la freqüència fonamental
+    idx_fund = np.argmax(magnitude[1:]) + 1
+    f0 = freqs[idx_fund]
+
+    # suma dels quadrats de les magnituds dels harmònics (2a a 5a)
+    thd_numerador_sq = 0
+    for h in range(2, H):
+        harmonic_freq = f0 * h
+        idx_harm = np.argmin(np.abs(freqs - harmonic_freq))
+        thd_numerador_sq += magnitude[idx_harm] ** 2
+
+    # Suma dels quadrats de les magnituds de totes les components AC (excloent DC)
+    # magnitude[1:] conté totes les components amb freqüència > 0
+    thd_denominador_sq = np.sum(magnitude[1:] ** 2)
+
+    # Evitar divisió per zero si no hi ha components AC
+    if thd_denominador_sq == 0:
+        return 0.0
+
+    thd = np.sqrt(thd_numerador_sq) / np.sqrt(thd_denominador_sq)
+    thd_percent = thd * 100
+    return thd_percent
 
 def compute_THDN(signal, fs, N, f0_hint=None):
     """
@@ -149,7 +170,7 @@ def compute_THD_sweep(signal, num_partitions, segment_length=2048):
 
     for segment in signal_segments:
         #calculem la thd de cada segment
-        thd = compute_THD(segment, fs, len(segment))
+        thd = compute_THD_F(segment, fs, len(segment))
         thd_values.append(thd)
         #calculem la freq dominant de cada segment
         spectrum = np.fft.fft(segment)
@@ -177,3 +198,19 @@ def plot_THDs(thd_values, dominant_frequencies):
     plt.xlim([20, 20000]) # Set the x-axis limits from 20 Hz to 20 kHz
     plt.text(0.7, 0.85, f'Mean THD: {np.mean(thd_values):.2f}%', transform=plt.gca().transAxes, fontsize=10, verticalalignment='top')
     plt.show()
+
+def compute_THD_via_farina():
+    """
+    Utilitzem el metode de Farina per calcular el THD.
+    """
+    f = adspy.Farina(20, 20, 20000)
+    return f.getTHD()
+    
+    # ara farem mitjançant una impulse response
+    # passos a fer:
+    # 1r generar la impulse response (part lineal)
+    # 2n deconvolucionar la senyal amb el filtre invers del sweep
+    # 3r mesurar l'energia (RMS) de cada impulse
+    # 4t calcular el THD 
+    # hint: vigilar la finestra per captar l'energia d cada impuls
+    

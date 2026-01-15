@@ -64,6 +64,21 @@ def soft_clip_tanh(x, dist=5.0):
     y = np.tanh(dist * x)
     return y / (np.max(np.abs(y)) + 1e-12)
 
+def apply_nonlinear_distortion(signal, alpha=0.1):
+    """
+    Apliquem una distorssió no lineal a una senyal utilitzant un terme quadràtic amb un paràmetre alpha que regulta
+    aquesta distorssió.
+    """
+    #  y = x + alpha * x^2
+    # afegeix harmònics parells
+    distorted_signal = signal + alpha * (signal**2)
+
+    # normalitzem la senyal 
+    max_val = np.max(np.abs(distorted_signal))
+    if max_val > 1.0:
+        distorted_signal = distorted_signal / max_val * 0.9
+    return distorted_signal
+
 def sweep_generator(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
     """
     Generem un sweep logarítmic.
@@ -73,5 +88,34 @@ def sweep_generator(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
     L = f_start * K
     sweep = np.sin(2*np.pi*L*(np.exp(t/K)-1))
     return sweep.astype(np.float32)
+
+def sweep_generator_linear(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
+    """
+    Generem un sweep lineal.
+    """
+    t = np.arange(int(fs*dur))/fs
+    sweep = np.sin(2*np.pi * ( (f_start * t) + ( (f_end - f_start) / (2 * dur) ) * t**2 ))
+    return sweep.astype(np.float32)
+
+def sweep_generator_exponential(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
+    """
+    Generem un sweep exponencial.
+    """
+    t = np.arange(int(fs*dur))/fs
+    beta = np.log(f_end / f_start) / dur
+    sweep = np.sin(2 * np.pi * (f_start / beta) * (np.exp(beta * t) - 1))
+    return sweep.astype(np.float32)
+
+# ara afegire les funcions per generar senyals per a l'anàñisi de IMD
+
+def synth_two_tones(fs=48000, dur=2.0, f1=19000.0, f2=20000.0, amplitude=0.5):
+    """
+    Genera una senyal amb dos tons. 
+    """
+    t = np.arange(int(fs*dur))/fs
+    signal = amplitude * (np.sin(2*np.pi*f1*t) + np.sin(2*np.pi*f2*t))
+    # Normalizar para evitar clipping si la suma excede 1.0
+    signal = signal / np.max(np.abs(signal)) * 0.9 # Normalizamos a 0.9 para dejar margen
+    return signal.astype(np.float32)
 
 

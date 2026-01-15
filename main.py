@@ -4,6 +4,7 @@ from audio_input import record_audio
 from analyzer_THD import plot_fft, extract_fundamental_note, extract_impulse_response
 from gui_app import AudioApp
 import matplotlib.pyplot as plt
+import audio_dspy as adspy
 
 def main_console():
     signal, fs = record_audio(duration=2)

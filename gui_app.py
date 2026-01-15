@@ -5,7 +5,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import numpy as np
 from audio_input import record_audio
-from analyzer_THD import plot_fft, extract_impulse_response, compute_THD
+from analyzer_THD import plot_fft, extract_impulse_response, compute_THD_F
 
 class AudioApp(tk.Tk):
     def __init__(self):
@@ -50,7 +50,7 @@ class AudioApp(tk.Tk):
 
         self.canvas.draw()
         # Calcula i mostra el THD de la gravació
-        thd = compute_THD(signal, fs)
+        thd = compute_THD_F(signal, fs)
         self.thd_label.config(text=f"THD (gravació): {thd:.2f}%")
 
     def upload_and_analyze(self):
@@ -85,7 +85,7 @@ class AudioApp(tk.Tk):
             self.ax2.set_ylabel("Amplitud")
             self.canvas.draw()
             # Calcula i mostra el THD
-            thd = compute_THD(signal, fs)
+            thd = compute_THD_F(signal, fs)
             self.thd_label.config(text=f"THD (fitxer): {thd:.2f}%")
         except Exception as e:
             self.thd_label.config(text=f"Error: {e}")
