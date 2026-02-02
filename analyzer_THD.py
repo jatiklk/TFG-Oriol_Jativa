@@ -205,12 +205,6 @@ def compute_THD_via_farina():
     """
     f = adspy.Farina(20, 20, 20000)
     return f.getTHD()
-    
-    # ara farem mitjançant una impulse response
-    # passos a fer:
-    # 1r generar la impulse response (part lineal)
-    # 2n deconvolucionar la senyal amb el filtre invers del sweep
-    # 3r mesurar l'energia (RMS) de cada impulse
-    # 4t calcular el THD 
-    # hint: vigilar la finestra per captar l'energia d cada impuls
+
+# mirar q farina sense distorsio dona distorsio i testejarho (sha de pulir farina)
     

@@ -45,3 +45,45 @@ def compute_IMD_ccif(signal, fs, f1, f2, bins=2, include_3rd=True):
     im_rms = np.sqrt(np.sum(np.square(im_components)))
     imd = (im_rms / Aref) * 100.0
     return float(imd)
+
+ # ara farem el model SMPTE 
+
+import numpy as np
+
+def compute_IMD_smpte(signal, fs, f1=60.0, f2=7000.0, bins=2):
+    """
+    IMD SMPTE:
+      - mesurem les bandes laterals de primer ordre al voltant de f2: |f2-f1| i |f2+f1|
+      - normalizem per l'amplitud de f2
+    Tornem el IMD en %
+    """
+    x = np.asarray(signal, dtype=np.float64)
+    x = x - np.mean(x)  
+    N = len(x)
+
+    # finestra de hanning
+    w = np.hanning(N)
+    X = np.fft.rfft(x * w)
+    mag = np.abs(X) / (N/2) 
+    freqs = np.fft.rfftfreq(N, 1/fs)
+
+    def local_peak_at(f):
+        k = int(np.argmin(np.abs(freqs - f)))
+        k0 = max(0, k - bins)
+        k1 = min(len(mag) - 1, k + bins)
+        return float(np.max(mag[k0:k1+1]))
+
+    A_f2 = local_peak_at(f2)
+    if A_f2 < 1e-15: 
+        return 0.0
+
+    # SMPTE: laterals d'f2
+    f_sb1_low = abs(f2 - f1)
+    A_sb1_low = local_peak_at(f_sb1_low)
+
+    f_sb1_high = abs(f2 + f1)
+    A_sb1_high = local_peak_at(f_sb1_high)
+
+    # SMPTE RP 120-1994, IMD = (A(f2-f1) + A(f2+f1)) / A(f2) * 100%
+    imd = ((A_sb1_low + A_sb1_high) / A_f2) * 100.0
+    return float(imd)
