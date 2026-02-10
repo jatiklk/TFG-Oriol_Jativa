@@ -108,14 +108,16 @@ def sweep_generator_exponential(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
 
 # ara afegire les funcions per generar senyals per a l'anàñisi de IMD
 
-def synth_two_tones(fs=48000, dur=2.0, f1=19000.0, f2=20000.0, amplitude=0.5):
+def synth_two_tones(fs=48000, dur=2.0, f1=60.0, f2=7000.0, amp1=0.8, amp2=0.2):
     """
-    Genera una senyal amb dos tons. 
+    Generem un senyal amb dos tons sinusoidals per provar IMD, amb amplituds i freqüències regulables.
+    Per defecte, utilitzem les freqüències i una relació d'amplitud típiques de SMPTE (f1:f2 = 4:1).
     """
     t = np.arange(int(fs*dur))/fs
-    signal = amplitude * (np.sin(2*np.pi*f1*t) + np.sin(2*np.pi*f2*t))
-    # Normalizar para evitar clipping si la suma excede 1.0
-    signal = signal / np.max(np.abs(signal)) * 0.9 # Normalizamos a 0.9 para dejar margen
+    signal = amp1 * np.sin(2*np.pi*f1*t) + amp2 * np.sin(2*np.pi*f2*t)
+    # normalitzem la senyal a 0.9 per deixar marge i evitar clipping, mantenint la relació d'amplitud entre els dos tons.
+    signal = signal / np.max(np.abs(signal)) * 0.9 
     return signal.astype(np.float32)
+
 
 
