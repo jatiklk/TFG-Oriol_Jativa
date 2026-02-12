@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from analyzer_IMD import compute_IMD_smpte, compute_IMD_ccif 
 
 def sine(fs, dur, f0, amp=1.0):
     """
@@ -119,5 +120,67 @@ def synth_two_tones(fs=48000, dur=2.0, f1=60.0, f2=7000.0, amp1=0.8, amp2=0.2):
     signal = signal / np.max(np.abs(signal)) * 0.9 
     return signal.astype(np.float32)
 
+# metode generat 100% amb IA, es un metode que el que fa es generar una senyal amb un IMD especific, 
+# l'utilitzo per comprovar que el meu metode de mesura d'IMD és correcte i ens dona el valor de IMD
+# esperat. 
 
 
+def generate_signal_with_target_imd_QUADRARTIC(target_imd,
+                                      fs=48000, f1=60.0, f2=7000.0, amp1=0.8, amp2=0.2,
+                                      dur=2.0,
+                                      initial_alpha=0.01, tolerance=0.1, max_iterations=100,
+                                      alpha_step_factor=1.2, alpha_decay_factor=0.8):
+    """
+    Generates a two-tone signal and iteratively adjusts the 'alpha' parameter of a quadratic distortion
+    to achieve a target Intermodulation Distortion (IMD) using the SMPTE method.
+
+    Args:
+        target_imd (float): The desired IMD value in percentage.
+        fs (int): Sampling frequency in Hz.
+        f1 (float): Frequency of the first tone in Hz.
+        f2 (float): Frequency of the second tone in Hz.
+        amp1 (float): Amplitude of the first tone.
+        amp2 (float): Amplitude of the second tone.
+        dur (float): Duration of the signal in seconds.
+        initial_alpha (float): Starting value for the quadratic distortion coefficient.
+        tolerance (float): Acceptable deviation from the target IMD (in percentage).
+        max_iterations (int): Maximum number of iterations for alpha adjustment.
+        alpha_step_factor (float): Factor to multiply alpha by if IMD is too low.
+        alpha_decay_factor (float): Factor to multiply alpha by if IMD is too high (should be < 1).
+
+    Returns:
+        tuple: A tuple containing:
+            - distorted_signal (np.ndarray): The signal with the achieved target IMD.
+            - final_alpha (float): The alpha coefficient that resulted in the target IMD.
+            - actual_imd (float): The actual IMD achieved.
+            - iterations (int): The number of iterations taken.
+    """
+    # Generate the clean two-tone signal once
+    clean_signal = synth_two_tones(fs=fs, dur=dur, f1=f1, f2=f2, amp1=amp1, amp2=amp2)
+
+    current_alpha = initial_alpha
+    actual_imd = 0.0
+
+    for i in range(max_iterations):
+        # Ensure alpha does not go below a very small positive number to avoid issues
+        current_alpha = max(current_alpha, 1e-8)
+
+        # Apply distortion with the current alpha
+        distorted_signal = apply_nonlinear_distortion(clean_signal, alpha=current_alpha)
+
+        # Calculate IMD
+        actual_imd = compute_IMD_smpte(distorted_signal, fs, f1, f2)
+
+        # Check for convergence
+        if abs(actual_imd - target_imd) <= tolerance:
+            print(f"Converged in {i+1} iterations. Target IMD: {target_imd:.2f}%, Actual IMD: {actual_imd:.2f}%, Alpha: {current_alpha:.6f}")
+            return distorted_signal, current_alpha, actual_imd, i + 1
+
+        # Adjust alpha based on IMD comparison
+        if actual_imd < target_imd:
+            current_alpha *= alpha_step_factor # Increase alpha to get more distortion
+        else:
+            current_alpha *= alpha_decay_factor # Decrease alpha to get less distortion
+
+    print(f"Max iterations reached. Target IMD: {target_imd:.2f}%, Achieved IMD: {actual_imd:.2f}%, Final Alpha: {current_alpha:.6f}")
+    return distorted_signal, current_alpha, actual_imd, max_iterations
