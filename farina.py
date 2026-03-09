@@ -2,6 +2,7 @@ import numpy as np
 import audio_dspy as adsp
 import scipy.signal as signal
 from functools import wraps
+from generator import sweep_log
 
 # aqui he important manualment tot farina, aixi puc editar el que vulgui i millorar el que necessiti,
 #  marcare les meves modificacions amb comentaris com aquests d'inici a fi
@@ -37,7 +38,7 @@ class Farina:
         self.fs = fs
 
         # create probe and inverse probe
-        self.probe = adsp.sweep_log(f0, f1, duration, fs)
+        self.probe = sweep_log(f0, f1, duration, fs)
         R = np.log(f1 / f0)
         k = np.exp(np.arange(N) * R / N)
         self.inv_probe = np.flip(self.probe) / k
@@ -77,7 +78,15 @@ class Farina:
         for i in range(1, len(self.harm_times)):
             start = amax - self.harm_times[i]
             end = amax - self.harm_times[i-1]
-            self.harm_responses.append(self.far_response[start:end])
+            # Add guard band to reduce spillover from adjacent harmonics (15% on each side)
+            guard = int((end - start) * 0.15)
+            start = start + guard
+            end = end - guard
+            if end > start:  # Only add if window is still valid
+                self.harm_responses.append(self.far_response[start:end])
+            else:
+                # If guard band eliminates window, create minimal response
+                self.harm_responses.append(np.array([0]))
 
     def _check_meas(func):
         """

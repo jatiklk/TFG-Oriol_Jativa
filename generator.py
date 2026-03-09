@@ -107,6 +107,36 @@ def sweep_generator_exponential(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
     sweep = np.sin(2 * np.pi * (f_start / beta) * (np.exp(beta * t) - 1))
     return sweep.astype(np.float32)
 
+# metode tret de audiodspy i adaptat per generar una sweep pero amb un sin i no un cos com fan alla
+
+def sweep_log(f0, f1, duration, fs):
+    """Generates a logarithmic sine sweep
+
+    Parameters
+    ----------
+    f0: float
+        The frequency [Hz] at which to begin the sine sweep
+    f1: float
+        The frequency [Hz] at which to stop the sine sweep
+    duration: float
+        The length of time [seconds] over which to sweep the signal
+    fs: float
+        The sample rate [Hz]
+
+    Returns
+    -------
+    x: ndarray
+        A numpy array containing the sine sweep signal
+    """
+    N = int(duration * fs)
+    n = np.arange(N)
+
+    beta = N / np.log(f1 / f0)
+    phase = 2 * np.pi * beta * f0 * (pow(f1 / f0, n / N) - 1.0)
+    phi = np.pi / 180
+
+    return np.cos((phase + phi)/fs)
+
 # ara afegire les funcions per generar senyals per a l'anàñisi de IMD
 
 def synth_two_tones(fs=48000, dur=2.0, f1=60.0, f2=7000.0, amp1=0.8, amp2=0.2):
@@ -123,7 +153,6 @@ def synth_two_tones(fs=48000, dur=2.0, f1=60.0, f2=7000.0, amp1=0.8, amp2=0.2):
 # metode generat 100% amb IA, es un metode que el que fa es generar una senyal amb un IMD especific, 
 # l'utilitzo per comprovar que el meu metode de mesura d'IMD és correcte i ens dona el valor de IMD
 # esperat. 
-
 
 def generate_signal_with_target_imd_QUADRARTIC(target_imd,
                                       fs=48000, f1=60.0, f2=7000.0, amp1=0.8, amp2=0.2,
@@ -184,3 +213,4 @@ def generate_signal_with_target_imd_QUADRARTIC(target_imd,
 
     print(f"Max iterations reached. Target IMD: {target_imd:.2f}%, Achieved IMD: {actual_imd:.2f}%, Final Alpha: {current_alpha:.6f}")
     return distorted_signal, current_alpha, actual_imd, max_iterations
+
