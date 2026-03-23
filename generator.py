@@ -109,11 +109,13 @@ def sweep_generator_exponential(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
 
 # metode tret de audiodspy i adaptat per generar una sweep pero amb un sin i no un cos com fan alla
 
-def sweep_log(f0, f1, duration, fs):
+def sweep_log(f0, f1, duration, fs, A):
     """Generates a logarithmic sine sweep
 
     Parameters
     ----------
+    A: float
+        Amplitude of the sweep signal
     f0: float
         The frequency [Hz] at which to begin the sine sweep
     f1: float
@@ -135,7 +137,7 @@ def sweep_log(f0, f1, duration, fs):
     phase = 2 * np.pi * beta * f0 * (pow(f1 / f0, n / N) - 1.0)
     phi = np.pi / 180
 
-    return np.cos((phase + phi)/fs)
+    return A*np.sin((phase + phi)/fs)
 
 # ara afegire les funcions per generar senyals per a l'anàñisi de IMD
 

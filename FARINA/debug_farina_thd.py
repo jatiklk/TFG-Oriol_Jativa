@@ -10,7 +10,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from farina import Farina
+from custom_farina import Farina
 from generator import soft_clip_tanh
 import scipy.signal as signal
 
