@@ -80,14 +80,31 @@ def apply_nonlinear_distortion(signal, alpha=0.1):
         distorted_signal = distorted_signal / max_val * 0.9
     return distorted_signal
 
-def sweep_generator(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
+def sweep_generator(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0, fade_in_dur=0.1, fade_out_dur=0.1):
     """
-    Generem un sweep logarítmic.
+    Generem un sweep logarítmic amb fade in i fade out opcionals.
     """
     t = np.arange(int(fs*dur))/fs
     K = dur / np.log(f_end/f_start)
     L = f_start * K
     sweep = np.sin(2*np.pi*L*(np.exp(t/K)-1))
+    
+    # Aplicar fade in i fade out
+    if fade_in_dur > 0 or fade_out_dur > 0:
+        N = len(sweep)
+        fade_in_samples = int(fs * fade_in_dur)
+        fade_out_samples = int(fs * fade_out_dur)
+        
+        # Finestra lineal per fade in
+        if fade_in_samples > 0:
+            fade_in_window = np.linspace(0, 1, fade_in_samples)
+            sweep[:fade_in_samples] *= fade_in_window
+        
+        # Finestra lineal per fade out
+        if fade_out_samples > 0:
+            fade_out_window = np.linspace(1, 0, fade_out_samples)
+            sweep[-fade_out_samples:] *= fade_out_window
+    
     return sweep.astype(np.float32)
 
 def sweep_generator_linear(fs=48000, dur=5.0, f_start=20.0, f_end=20000.0):
@@ -136,6 +153,7 @@ def sweep_log(f0, f1, duration, fs, A):
     beta = N / np.log(f1 / f0)
     phase = 2 * np.pi * beta * f0 * (pow(f1 / f0, n / N) - 1.0)
     phi = np.pi / 180
+    
 
     return A*np.sin((phase + phi)/fs)
 
