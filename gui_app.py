@@ -9,20 +9,23 @@ import numpy as np
 import threading
 import time
 from scipy.io import wavfile
+import sounddevice as sd
 from audio_input import record_audio, get_input_devices
 from analyzer_THD import plot_fft, extract_impulse_response, compute_THD_F, compute_THD_rms, compute_THDN, compute_THD_sweep
 from analyzer_IMD import compute_IMD_smpte, compute_IMD_ccif
-from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_tanh, apply_nonlinear_distortion, synth_tone_with_thd, synth_tone_with_thd_and_noise
+from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_tanh, apply_nonlinear_distortion, synth_tone_with_thd, synth_tone_with_thd_and_noise, synth_two_tones
 
 class AudioApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Audio Analyzer")
+        self.title("DistorLab")
         self.geometry("900x700")
         self.selected_analysis_type = None
         self.selected_thd_type = None
+        self.selected_imd_method = "SMPTE"
         self.signal = None
         self.fs = None
+        self.is_recording_source = False
         
         # Mostrar la pantalla inicial de selecció
         self.show_selection_screen()
@@ -281,6 +284,7 @@ class AudioApp(tk.Tk):
         self.record_indicator.itemconfig(self.record_indicator_circle, fill="grey")
         self.start_record_button.config(state=tk.NORMAL)
         if success:
+            self.is_recording_source = True
             messagebox.showinfo("Èxit", "Gravació completa")
             self.show_analysis_screen()
         else:
@@ -331,7 +335,10 @@ class AudioApp(tk.Tk):
                 data = data.astype(np.float32) / np.max(np.abs(data))
             self.signal = data.astype(np.float64)
             self.fs = fs
+            self.is_recording_source = False
             self.show_analysis_screen()
+            if self.selected_analysis_type == "IMD":
+                self.analyze_signal(self.signal, self.fs)
         except Exception as e:
             messagebox.showerror("Error", f"Error al carregar el fitxer: {e}")
 
@@ -447,7 +454,10 @@ class AudioApp(tk.Tk):
                     self.signal = signal
                     self.fs = fs
                     dialog.destroy()
-                    self.show_analysis_screen()
+                    if self.selected_analysis_type == "IMD":
+                        self.show_imd_screen()
+                    else:
+                        self.show_analysis_screen()
             except ValueError:
                 messagebox.showerror("Error", "Els paràmetres introduïts no són vàlids")
         
@@ -466,67 +476,86 @@ class AudioApp(tk.Tk):
     
     def show_imd_screen(self):
         """Mostra la pantalla per seleccionar generar sweep o importar una senyal"""
-        # Esborrar els widgets anteriors
         for widget in self.winfo_children():
             widget.destroy()
 
-        # Frame principal
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(expand=True, fill=tk.BOTH)
 
-        # Botó per tornar enrere
         back_btn = ttk.Button(main_frame, text="← Tornar", 
                              command=self.show_selection_screen)
         back_btn.pack(anchor=tk.NW, pady=(0, 20))
 
-        # Títol
-        title_label = ttk.Label(main_frame, text="Selecciona la font del sweep", 
+        title_label = ttk.Label(main_frame, text="Anàlisi IMD: genera senyal o importa WAV", 
                                font=("Arial", 14, "bold"))
         title_label.pack(pady=20)
 
-        # Botó generar sweep
-        generate_btn = ttk.Button(main_frame, text="Generar sweep", 
-                                 command=self.show_sweep_generation_dialog,
-                                 width=25)
-        generate_btn.pack(pady=10)
+        method_frame = ttk.Frame(main_frame)
+        method_frame.pack(pady=(0, 20), fill=tk.X)
 
-        # Botó importar WAV
+        method_label = ttk.Label(method_frame, text="Mètode IMD:", font=("Arial", 12))
+        method_label.pack(side=tk.LEFT, padx=(0, 10))
+
+        imd_methods = ["SMPTE", "CCIF"]
+        self.imd_dropdown = ttk.Combobox(method_frame, values=imd_methods, state="readonly", width=20)
+        self.imd_dropdown.set(self.selected_imd_method)
+        self.imd_dropdown.bind("<<ComboboxSelected>>", self.on_imd_method_changed)
+        self.imd_dropdown.pack(side=tk.LEFT)
+
+        info_label = ttk.Label(main_frame, 
+                               text="Prem un botó per generar la senyal amb el mètode triat, o importa un WAV.",
+                               font=("Arial", 11), foreground="#333333", wraplength=760)
+        info_label.pack(pady=(0, 20))
+
+        ccif_btn = ttk.Button(main_frame, text="Generar CCIF", 
+                              command=lambda: self.generate_imd_signal("CCIF"), width=25)
+        ccif_btn.pack(pady=10)
+
+        smpte_btn = ttk.Button(main_frame, text="Generar SMPTE", 
+                               command=lambda: self.generate_imd_signal("SMPTE"), width=25)
+        smpte_btn.pack(pady=10)
+
         import_btn = ttk.Button(main_frame, text="Importar WAV", 
                                command=self.import_wav_signal,
                                width=25)
         import_btn.pack(pady=10)
 
-    def show_distortion_selection_screen(self):
-        """Permet seleccionar distorsió per al WAV importat"""
-        for widget in self.winfo_children():
-            widget.destroy()
+    def select_imd_method(self, method):
+        self.selected_imd_method = method
+        if hasattr(self, 'imd_dropdown'):
+            self.imd_dropdown.set(self.selected_imd_method)
 
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
+    def on_imd_method_changed(self, event=None):
+        self.selected_imd_method = self.imd_dropdown.get()
 
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_simulator_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+    def generate_imd_signal(self, method):
+        self.selected_imd_method = method
+        if hasattr(self, 'imd_method_label'):
+            self.imd_method_label.config(text=f"Mètode seleccionat: {self.selected_imd_method}")
 
-        title_label = ttk.Label(main_frame, text="Selecciona el tipus de distorsió", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        fs = 48000
+        if method == "SMPTE":
+            self.signal = synth_two_tones(fs=fs, dur=2.0, f1=60.0, f2=7000.0, amp1=0.8, amp2=0.2)
+            default_name = "IMD_SMPTE_signal.wav"
+        else:
+            self.signal = synth_two_tones(fs=fs, dur=2.0, f1=7000.0, f2=7600.0, amp1=0.45, amp2=0.45)
+            default_name = "IMD_CCIF_signal.wav"
 
-        methods = ["soft_clip_tanh", "apply_nonlinear_distortion"]
-        self.distortion_dropdown = ttk.Combobox(main_frame, values=methods, state="readonly", width=30)
-        self.distortion_dropdown.set(methods[0])
-        self.distortion_dropdown.pack(pady=10)
+        self.fs = fs
 
-        params_label = ttk.Label(main_frame, text="Paràmetres (dist, alpha):")
-        params_label.pack(pady=6)
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".wav",
+            filetypes=[("WAV files", "*.wav"), ("All files", "*.*")],
+            initialfile=default_name
+        )
+        if not file_path:
+            return
 
-        self.param_entry = ttk.Entry(main_frame, width=20)
-        self.param_entry.insert(0, "0.1")
-        self.param_entry.pack(pady=5)
-
-        apply_btn = ttk.Button(main_frame, text="Aplicar distorsió", 
-                               command=self.apply_selected_distortion)
-        apply_btn.pack(pady=10)
+        try:
+            wavfile.write(file_path, self.fs, (self.signal * 32767).astype(np.int16))
+            messagebox.showinfo("Èxit", f"Fitxer IMD generat i desat a:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut desar el fitxer: {e}")
 
     def apply_selected_distortion(self):
         method = self.distortion_dropdown.get()
@@ -541,7 +570,7 @@ class AudioApp(tk.Tk):
         else:
             self.signal = apply_nonlinear_distortion(self.signal, alpha=p)
 
-        self.show_analysis_screen()
+        self.show_simulator_result_screen()
 
     def show_generator_distortion_dialog(self):
         """Mostra un diàleg per generar una senyal distorsionada directament"""
@@ -607,9 +636,13 @@ class AudioApp(tk.Tk):
         self.generator_dist_entry.insert(0, "0.1")
         self.generator_dist_entry.pack(pady=3)
 
-        apply_btn = ttk.Button(main_frame, text="Generar i analitzar", 
+        apply_btn = ttk.Button(main_frame, text="Generar i descarregar/reproduir", 
                                command=self.generate_distorted_signal)
         apply_btn.pack(pady=10)
+
+        home_btn = ttk.Button(main_frame, text="Anar a l'inici", 
+                               command=self.show_selection_screen, width=30)
+        home_btn.pack(pady=10)
 
     def generate_distorted_signal(self):
         method = self.generator_dropdown.get()
@@ -637,34 +670,7 @@ class AudioApp(tk.Tk):
             self.signal = sweep_generator_linear(fs, dur, f0, float(self.generator_f0_entry.get() or 20000))
 
         self.fs = fs
-        self.show_analysis_screen()
-
-    def show_imd_screen(self):
-        """Mostra la pantalla per seleccionar generar sweep o importar una senyal"""
-        # Esborrar widgets existents
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Selecciona la font del sweep", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
-
-        generate_btn = ttk.Button(main_frame, text="Generar sweep", 
-                                 command=self.show_sweep_generation_dialog,
-                                 width=25)
-        generate_btn.pack(pady=10)
-
-        import_btn = ttk.Button(main_frame, text="Importar WAV", 
-                               command=self.import_wav_signal,
-                               width=25)
-        import_btn.pack(pady=10)
+        self.show_simulator_result_screen()
 
     def show_simulator_screen(self):
         """Mostra opcions de simular distorsió"""
@@ -692,7 +698,80 @@ class AudioApp(tk.Tk):
                                    width=30)
         generator_btn.pack(pady=10)
 
-    
+    def show_simulator_result_screen(self):
+        """Mostra opcions per reproduir o desar la senyal simulada"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_simulator_screen)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="Senyal simulada llesta", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        info_label = ttk.Label(main_frame, text="Ara pots reproduir la senyal o desar-la com a WAV.", 
+                               font=("Arial", 12))
+        info_label.pack(pady=10)
+
+        play_btn = ttk.Button(main_frame, text="Reproduir senyal", 
+                               command=self.play_signal, width=30)
+        play_btn.pack(pady=10)
+
+        save_btn = ttk.Button(main_frame, text="Descarregar WAV", 
+                               command=self.save_signal, width=30)
+        save_btn.pack(pady=10)
+
+        home_btn = ttk.Button(main_frame, text="Anar a l'inici", 
+                               command=self.show_selection_screen, width=30)
+        home_btn.pack(pady=10)
+
+        self.simulator_status_label = ttk.Label(main_frame, text="", font=("Arial", 11))
+        self.simulator_status_label.pack(pady=8)
+
+    def play_signal(self):
+        """Reprodueix la senyal simulada utilitzant sounddevice."""
+        if self.signal is None or self.fs is None:
+            messagebox.showerror("Error", "No hi ha cap senyal per reproduir.")
+            return
+
+        def playback():
+            try:
+                sd.play(self.signal, self.fs)
+                sd.wait()
+            except Exception as e:
+                messagebox.showerror("Error", f"No s'ha pogut reproduir la senyal: {e}")
+
+        threading.Thread(target=playback, daemon=True).start()
+
+    def save_signal(self):
+        """Desa la senyal simulada a un fitxer WAV."""
+        if self.signal is None or self.fs is None:
+            messagebox.showerror("Error", "No hi ha cap senyal per desar.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".wav",
+            filetypes=[("WAV files", "*.wav"), ("All files", "*.*")],
+            initialfile="simulated_signal.wav"
+        )
+        if not file_path:
+            return
+
+        try:
+            signal_to_save = self.signal
+            if signal_to_save.dtype != np.int16:
+                signal_to_save = np.clip(signal_to_save, -1.0, 1.0)
+                signal_to_save = (signal_to_save * 32767).astype(np.int16)
+            wavfile.write(file_path, self.fs, signal_to_save)
+            messagebox.showinfo("Èxit", f"Fitxer guardat a:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut desar el fitxer: {e}")
+
     def show_analysis_screen(self):
         """Mostra la pantalla principal d'anàlisi"""
         # Esborrar els widgets anteriors
@@ -703,10 +782,26 @@ class AudioApp(tk.Tk):
         main_frame = ttk.Frame(self, padding="10")
         main_frame.pack(expand=True, fill=tk.BOTH)
         
+        # Frame de botons de control
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(anchor=tk.NW, fill=tk.X, pady=(0, 10))
+        
         # Botó per tornar enrere
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
+        back_btn = ttk.Button(button_frame, text="← Tornar", 
                              command=self.show_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 10))
+        back_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Botó per descarregar WAV si és gravació
+        if self.is_recording_source and self.signal is not None and self.fs is not None:
+            download_btn = ttk.Button(button_frame, text="Descarregar WAV", 
+                                     command=self.download_recorded_wav)
+            download_btn.pack(side=tk.LEFT)
+        
+        # Botó per descarregar informe en PDF (sempre disponible si hi ha senyal)
+        if self.signal is not None and self.fs is not None:
+            pdf_btn = ttk.Button(button_frame, text="Descarregar PDF", 
+                                 command=self.export_result_pdf)
+            pdf_btn.pack(side=tk.LEFT, padx=(6, 0))
         
         # Títol - determinar quin tipus d'anàlisi
         if self.selected_analysis_type == "THD":
@@ -729,12 +824,34 @@ class AudioApp(tk.Tk):
                                   font=("Arial", 18, "bold"), foreground="#1a237e")
         self.thd_label.pack(side=tk.RIGHT)
 
+        if self.selected_analysis_type == "IMD":
+            selected_method_text = f"Mètode IMD seleccionat: {self.selected_imd_method}"
+            selected_method_label = ttk.Label(main_frame, text=selected_method_text, 
+                                              font=("Arial", 12), foreground="#333333")
+            selected_method_label.pack(fill=tk.X, pady=(0, 10))
+
+            hint_text = (
+                "CCIF: senyal amb dos tons d'alta freqüència i mateixa amplitud. "
+                "SMPTE: dos tons, un de baixa freqüència / alta amplitud i un d'alta freqüència / baixa amplitud."
+            )
+            hint_label = ttk.Label(main_frame, text=hint_text, font=("Arial", 10), foreground="#333333", wraplength=760)
+            hint_label.pack(fill=tk.X, pady=(0, 10))
+
         # Gràfics: només un eix per FFT / THD
         self.fig, self.ax1 = plt.subplots(figsize=(10, 6))
         self.fig.tight_layout(pad=4.0)
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
+        if self.selected_analysis_type == "IMD":
+            if self.signal is not None and self.fs is not None:
+                note_text = f"Anàlisi IMD automàtica amb mètode {self.selected_imd_method}."
+            else:
+                note_text = "Carrega o genera una senyal CCIF/SMPTE abans de poder analitzar IMD."
+            note_label = ttk.Label(main_frame, text=note_text, 
+                                   font=("Arial", 11), foreground="#333333")
+            note_label.pack(pady=(5, 10))
+
         # Si tenim una senyal carregada o generada, analitzar-la
         if self.signal is not None and self.fs is not None:
             self.analyze_signal(self.signal, self.fs)
@@ -746,18 +863,47 @@ class AudioApp(tk.Tk):
             self.ax1.set_title("Resposta en freqüència (FFT)")
             self.canvas.draw()
     
+    def imd_method_selected(self, event=None):
+        self.selected_imd_method = self.imd_dropdown.get()
+        if self.selected_imd_method == "CCIF":
+            reminder = (
+                "Recordatori CCIF:\n" 
+                "Utilitza una senyal amb dos tons d'alta freqüència i mateixa amplitud."
+            )
+        else:
+            reminder = (
+                "Recordatori SMPTE:\n"
+                "Utilitza una senyal amb dos tons, un de baixa freqüència i alta amplitud i un d'alta freqüència i baixa amplitud."
+            )
+        messagebox.showinfo("Recordatori IMD", reminder)
+
     def analyze_signal(self, signal, fs):
         """Analitza una senyal i mostra els gràfics"""
+        if signal is None or fs is None:
+            messagebox.showerror("Error", "No hi ha cap senyal per analitzar.")
+            return
         self.ax1.clear()
         
         # FFT plot
         N = len(signal)
         spectrum = abs(np.fft.fft(signal)[:N//2])
         freqs = np.fft.fftfreq(N, 1/fs)[:N//2]
-        self.ax1.plot(freqs, spectrum, color="#1e88e5", linewidth=1.5)
+        positive = freqs > 0
+        freqs = freqs[positive]
+        spectrum = spectrum[positive]
+        if len(freqs) == 0:
+            self.ax1.text(0.5, 0.5, "No hi ha dades FFT vàlides per mostrar.",
+                          ha='center', va='center', transform=self.ax1.transAxes)
+        else:
+            # Normalitza l'amplitud entre 0 i 1
+            spectrum = spectrum / np.max(spectrum)
+            self.ax1.plot(freqs, spectrum, color="#1e88e5", linewidth=1.5)
+            self.ax1.set_xscale('log')
+            self.ax1.set_xlim([20, 20000])
+            self.ax1.set_ylim([0, 1])
         self.ax1.set_title("Resposta en freqüència (FFT)", fontsize=16, fontweight="bold")
         self.ax1.set_xlabel("Freqüència (Hz)", fontsize=12)
-        self.ax1.set_ylabel("Amplitud", fontsize=12)
+        self.ax1.set_ylabel("Amplitud normalitzada (0-1)", fontsize=12)
         self.ax1.grid(True, linestyle="--", alpha=0.4)
         self.ax1.tick_params(axis='both', labelsize=10)
 
@@ -793,8 +939,12 @@ class AudioApp(tk.Tk):
                 self.thd_label.config(text=f"Error al calcular THD: {e}")
         elif self.selected_analysis_type == "IMD":
             try:
-                imd_smpte = compute_IMD_smpte(signal, fs)
-                self.thd_label.config(text=f"IMD (SMPTE): {imd_smpte:.2f}%")
+                if self.selected_imd_method == "CCIF":
+                    imd_value = compute_IMD_ccif(signal, fs, f1=7000.0, f2=7600.0)
+                    self.thd_label.config(text=f"IMD (CCIF): {imd_value:.2f}%")
+                else:
+                    imd_value = compute_IMD_smpte(signal, fs, f1=60.0, f2=7000.0)
+                    self.thd_label.config(text=f"IMD (SMPTE): {imd_value:.2f}%")
             except Exception as e:
                 self.thd_label.config(text=f"Error al calcular IMD: {str(e)}")
     
@@ -823,6 +973,79 @@ class AudioApp(tk.Tk):
             self.analyze_signal(self.signal, self.fs)
         except Exception as e:
             messagebox.showerror("Error", f"Error al carregar el fitxer: {e}")
+
+    def download_recorded_wav(self):
+        """Descarrega el WAV de la gravació realitzada"""
+        if self.signal is None or self.fs is None:
+            messagebox.showerror("Error", "No hi ha senyal per descarregar")
+            return
+        
+        # Demanar on guardar
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".wav",
+            filetypes=[("WAV files", "*.wav"), ("All files", "*.*")],
+            initialfile=f"recorded_audio_{self.selected_analysis_type}.wav"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Convertir a int16 per guardar com a WAV estàndard
+            signal_int16 = (self.signal * 32767).astype(np.int16)
+            wavfile.write(file_path, self.fs, signal_int16)
+            messagebox.showinfo("Èxit", f"Gravació descarregada correctament a:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut descarregar el fitxer: {e}")
+
+    def export_result_pdf(self):
+        """Genera i desa un PDF amb el resultat i el gràfic actual."""
+        if self.signal is None or self.fs is None:
+            messagebox.showerror("Error", "No hi ha senyal per exportar")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            initialfile=f"informe_{self.selected_analysis_type}.pdf"
+        )
+        if not file_path:
+            return
+
+        try:
+            # Crear figura A4 amb text i gràfic
+            fig = plt.figure(figsize=(8.27, 11.69))  # A4
+            # Frase inicial amb el resultat
+            result_text = self.thd_label.cget("text") if hasattr(self, 'thd_label') else "Resultat no disponible"
+            header = f"DistorLab - Informe d'anàlisi\n\nEl seu resultat és: {result_text}"
+            fig.suptitle(header, fontsize=14, fontweight='bold')
+
+            ax = fig.add_subplot(111)
+            # Recalcular FFT per al PDF
+            N = len(self.signal)
+            spectrum = abs(np.fft.fft(self.signal)[:N//2])
+            freqs = np.fft.fftfreq(N, 1/self.fs)[:N//2]
+            positive = freqs > 0
+            freqs = freqs[positive]
+            spectrum = spectrum[positive]
+            if len(freqs) == 0:
+                ax.text(0.5, 0.5, "No hi ha dades FFT vàlides per mostrar.", ha='center')
+            else:
+                spectrum = spectrum / np.max(spectrum)
+                ax.plot(freqs, spectrum, color="#1e88e5", linewidth=1.5)
+                ax.set_xscale('log')
+                ax.set_xlim([20, 20000])
+                ax.set_ylim([0, 1])
+            ax.set_title("Resposta en freqüència (FFT)")
+            ax.set_xlabel("Freqüència (Hz)")
+            ax.set_ylabel("Amplitud normalitzada (0-1)")
+            ax.grid(True, linestyle="--", alpha=0.4)
+
+            fig.savefig(file_path, format='pdf', bbox_inches='tight')
+            plt.close(fig)
+            messagebox.showinfo("Èxit", f"Informe PDF desat a:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut generar el PDF: {e}")
 
 if __name__ == "__main__":
     app = AudioApp()
