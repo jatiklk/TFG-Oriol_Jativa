@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import threading
 import time
+import os
 from scipy.io import wavfile
 import sounddevice as sd
 from audio_input import record_audio, get_input_devices
-from analyzer_THD import plot_fft, extract_impulse_response, compute_THD_F, compute_THD_rms, compute_THDN, compute_THD_sweep
+from analyzer_THD import plot_fft, extract_impulse_response, compute_THD_F, compute_THD_rms, compute_THDN, compute_THD_sweep, compute_THD_harmonic
 from analyzer_IMD import compute_IMD_smpte, compute_IMD_ccif
 from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_tanh, apply_nonlinear_distortion, synth_tone_with_thd, synth_tone_with_thd_and_noise, synth_two_tones
 
@@ -26,6 +27,8 @@ class AudioApp(tk.Tk):
         self.signal = None
         self.fs = None
         self.is_recording_source = False
+        self.thd_diagram_image = self.load_thd_diagram_image()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
         
         # Mostrar la pantalla inicial de selecció
         self.show_selection_screen()
@@ -62,7 +65,35 @@ class AudioApp(tk.Tk):
                                    command=self.show_simulator_screen,
                                    width=20)
         simulator_btn.pack(pady=10)
+        
+        # Botó per generar una senyal de prova (disponible a la pàgina principal)
+        gen_test_main_btn = ttk.Button(main_frame, text="Generar senyal prova", 
+                           command=self.show_thd_test_signal_dialog,
+                           width=20)
+        gen_test_main_btn.pack(pady=10)
     
+    def load_thd_diagram_image(self, max_width=640):
+        """Carrega la imatge del diagrama THD si existeix a la carpeta de l'aplicació.
+
+        Si l'amplada de la imatge és més gran que `max_width`, es torna una versió
+        reduïda utilitzant `subsample` per evitar dependre de PIL.
+        """
+        filename = os.path.join(os.path.dirname(__file__), "thd_diagram.png")
+        if os.path.exists(filename):
+            try:
+                img = tk.PhotoImage(file=filename)
+            except Exception:
+                return None
+
+            try:
+                width = img.width()
+                if width > max_width and max_width > 0:
+                    factor = max(1, int(round(width / float(max_width))))
+                    return img.subsample(factor, factor)
+                return img
+            except Exception:
+                return img
+        return None
     def select_analysis_type(self, analysis_type):
         """Gestiona la selecció del tipus d'anàlisi"""
         self.selected_analysis_type = analysis_type
@@ -91,7 +122,16 @@ class AudioApp(tk.Tk):
         title_label = ttk.Label(main_frame, text="Selecciona el tipus de THD", 
                                font=("Arial", 14, "bold"))
         title_label.pack(pady=20)
-        
+
+        # Mostrar diagrama THD una mica més gran (un pas abans de gravar/importar)
+        thd_small = self.load_thd_diagram_image(max_width=480)
+        if thd_small is not None:
+            image_small_frame = ttk.Frame(main_frame)
+            image_small_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 10))
+            img_label_small = ttk.Label(image_small_frame, image=thd_small)
+            img_label_small.image = thd_small
+            img_label_small.pack()
+
         # Frame per al desplegable
         dropdown_frame = ttk.Frame(main_frame)
         dropdown_frame.pack(pady=20)
@@ -155,6 +195,8 @@ class AudioApp(tk.Tk):
                                command=self.import_wav_signal,
                                width=25)
         import_btn.pack(pady=10)
+        
+        
     
     def show_record_audio_screen(self):
         """Mostra una pantalla per triar l'entrada del sistema i gravar àudio"""
@@ -473,6 +515,101 @@ class AudioApp(tk.Tk):
                                command=dialog.destroy)
         cancel_btn.pack(side=tk.LEFT, padx=5)
     
+    def show_thd_test_signal_dialog(self):
+        """Mostra un diàleg per generar una senyal de prova per THD (sine o amb THD)."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Generar senyal prova")
+        dialog.geometry("380x320")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Centrar la finestra respecte a la principal
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.winfo_y() + (self.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        main_frame = ttk.Frame(dialog, padding="12")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        method_label = ttk.Label(main_frame, text="Tipus de senyal:")
+        method_label.grid(row=0, column=0, sticky=tk.W, pady=6)
+        methods = ["Sine pura", "Sweep logarítmic", "Sweep lineal"]
+        method_dropdown = ttk.Combobox(main_frame, values=methods, state="readonly", width=22)
+        method_dropdown.set(methods[0])
+        method_dropdown.grid(row=0, column=1, pady=6)
+
+        f0_label = ttk.Label(main_frame, text="Freq. fonamental (Hz):")
+        f0_label.grid(row=1, column=0, sticky=tk.W, pady=6)
+        f0_entry = ttk.Entry(main_frame, width=20)
+        f0_entry.insert(0, "1000")
+        f0_entry.grid(row=1, column=1, pady=6)
+
+        dur_label = ttk.Label(main_frame, text="Durada (s):")
+        dur_label.grid(row=2, column=0, sticky=tk.W, pady=6)
+        dur_entry = ttk.Entry(main_frame, width=20)
+        dur_entry.insert(0, "2")
+        dur_entry.grid(row=2, column=1, pady=6)
+
+        fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
+        fs_label.grid(row=3, column=0, sticky=tk.W, pady=6)
+        fs_dropdown = ttk.Combobox(main_frame, values=["44100","48000","96000"], state="readonly", width=17)
+        fs_dropdown.set("48000")
+        fs_dropdown.grid(row=3, column=1, pady=6)
+
+        amp_label = ttk.Label(main_frame, text="Amplitud (0-1):")
+        amp_label.grid(row=4, column=0, sticky=tk.W, pady=6)
+        amp_entry = ttk.Entry(main_frame, width=20)
+        amp_entry.insert(0, "0.9")
+        amp_entry.grid(row=4, column=1, pady=6)
+
+        # No es sol·liciten paràmetres de distorsió — només senyals netes
+        # (si s'escull sweep, s'utilitzen f0 com a freq. inicial i f_end a l'entrada de f0)
+        thd_entry = None
+        noise_entry = None
+
+        def generate_and_set():
+            try:
+                sel = method_dropdown.get()
+                f0 = float(f0_entry.get())
+                dur = float(dur_entry.get())
+                fs = int(fs_dropdown.get())
+                amp = float(amp_entry.get())
+            except ValueError:
+                messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
+                return
+
+            if sel == "Sine pura":
+                sig = sine(fs, dur, f0, amp)
+            elif sel == "Sweep logarítmic":
+                # use f0 as start, ask user to reuse f0 field for end frequency via simpledialog
+                f_end = simpledialog.askfloat("Freq. final", "Introdueix la freqüència final (Hz):", initialvalue=20000, parent=dialog)
+                if f_end is None:
+                    return
+                sig = sweep_generator(fs=fs, dur=dur, f_start=f0, f_end=f_end)
+            elif sel == "Sweep lineal":
+                f_end = simpledialog.askfloat("Freq. final", "Introdueix la freqüència final (Hz):", initialvalue=20000, parent=dialog)
+                if f_end is None:
+                    return
+                sig = sweep_generator_linear(fs=fs, dur=dur, f_start=f0, f_end=f_end)
+            else:
+                messagebox.showerror("Error", "Tipus de senyal desconegut")
+                return
+
+            # Assignar la senyal i mostrar la pantalla per reproduir/descarregar (sense analitzar)
+            self.signal = sig.astype(np.float64)
+            self.fs = fs
+            self.is_recording_source = False
+            dialog.destroy()
+            self.show_test_signal_ready_screen()
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=7, column=0, columnspan=2, pady=12)
+        gen_btn = ttk.Button(btn_frame, text="Generar", command=generate_and_set)
+        gen_btn.pack(side=tk.LEFT, padx=6)
+        cancel_btn = ttk.Button(btn_frame, text="Cancelar", command=dialog.destroy)
+        cancel_btn.pack(side=tk.LEFT, padx=6)
+    
     
     def show_imd_screen(self):
         """Mostra la pantalla per seleccionar generar sweep o importar una senyal"""
@@ -556,6 +693,41 @@ class AudioApp(tk.Tk):
             messagebox.showinfo("Èxit", f"Fitxer IMD generat i desat a:\n{file_path}")
         except Exception as e:
             messagebox.showerror("Error", f"No s'ha pogut desar el fitxer: {e}")
+
+    def show_test_signal_ready_screen(self):
+        """Pantalla que mostra només opcions per reproduir o desar la senyal de prova (sense analitzar)."""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_signal_input_screen)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="Senyal de prova llesta", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        info_label = ttk.Label(main_frame, text="Aquesta senyal és neta (sense distorsió). Pots reproduir-la o descarregar-la.", 
+                               font=("Arial", 12), wraplength=760)
+        info_label.pack(pady=10)
+
+        play_btn = ttk.Button(main_frame, text="Reproduir senyal", 
+                               command=self.play_signal, width=30)
+        play_btn.pack(pady=10)
+
+        save_btn = ttk.Button(main_frame, text="Descarregar WAV", 
+                               command=self.save_signal, width=30)
+        save_btn.pack(pady=10)
+
+        home_btn = ttk.Button(main_frame, text="Anar a l'inici", 
+                               command=self.show_selection_screen, width=30)
+        home_btn.pack(pady=10)
+
+        self.simulator_status_label = ttk.Label(main_frame, text="", font=("Arial", 11))
+        self.simulator_status_label.pack(pady=8)
 
     def apply_selected_distortion(self):
         method = self.distortion_dropdown.get()
@@ -895,16 +1067,17 @@ class AudioApp(tk.Tk):
             self.ax1.text(0.5, 0.5, "No hi ha dades FFT vàlides per mostrar.",
                           ha='center', va='center', transform=self.ax1.transAxes)
         else:
-            # Normalitza l'amplitud entre 0 i 1
-            spectrum = spectrum / np.max(spectrum)
-            self.ax1.plot(freqs, spectrum, color="#1e88e5", linewidth=1.5)
-            self.ax1.set_xscale('log')
+            # Convertir l'amplitud a decibels relatius
+            eps = 1e-12
+            spectrum_db = 20 * np.log10(np.maximum(spectrum / np.max(spectrum), eps))
+            self.ax1.semilogx(freqs, spectrum_db, color="#1e88e5", linewidth=1.5)
+            self.ax1.set_xscale('log', nonpositive='clip')
             self.ax1.set_xlim([20, 20000])
-            self.ax1.set_ylim([0, 1])
+            self.ax1.set_ylim([np.min(spectrum_db) - 5, np.max(spectrum_db) + 5])
         self.ax1.set_title("Resposta en freqüència (FFT)", fontsize=16, fontweight="bold")
         self.ax1.set_xlabel("Freqüència (Hz)", fontsize=12)
-        self.ax1.set_ylabel("Amplitud normalitzada (0-1)", fontsize=12)
-        self.ax1.grid(True, linestyle="--", alpha=0.4)
+        self.ax1.set_ylabel("Amplitud (dB rel.)", fontsize=12)
+        self.ax1.grid(True, which='both', linestyle="--", alpha=0.4)
         self.ax1.tick_params(axis='both', labelsize=10)
 
         self.canvas.draw()
@@ -915,22 +1088,25 @@ class AudioApp(tk.Tk):
                 if self.selected_thd_type == "THD_F":
                     thd = compute_THD_F(signal, fs, len(signal))
                     self.thd_label.config(text=f"THD_F: {thd:.2f}%")
+                    self.draw_harmonic_thd_table(signal, fs)
                 elif self.selected_thd_type == "THD_RMS":
                     thd = compute_THD_rms(signal, fs, len(signal))
                     self.thd_label.config(text=f"THD_RMS: {thd:.2f}%")
+                    self.draw_harmonic_thd_table(signal, fs)
                 elif self.selected_thd_type == "THD_N":
                     thd = compute_THDN(signal, fs, len(signal))
                     self.thd_label.config(text=f"THD+N: {thd:.2f}%")
                 elif self.selected_thd_type == "THD_SWEEP":
-                    thd_values, freqs = compute_THD_sweep(signal, num_partitions=10)
+                    thd_values, freqs = compute_THD_sweep(signal, fs, num_partitions=10)
                     self.thd_label.config(text=f"THD_SWEEP (mitjana): {np.mean(thd_values):.2f}%")
                     self.ax1.clear()
-                    self.ax1.plot(freqs, thd_values)
+                    self.ax1.semilogx(freqs, thd_values, color="#1e88e5", linewidth=1.5, marker='o', markersize=4)
                     self.ax1.set_title("THD per segment")
                     self.ax1.set_xlabel("Freqüència (Hz)")
                     self.ax1.set_ylabel("THD (%)")
-                    self.ax1.set_xscale('log')
-                    self.ax1.grid(True)
+                    self.ax1.set_xscale('log', nonpositive='clip')
+                    self.ax1.set_xlim([20, 20000])
+                    self.ax1.grid(True, which='both', linestyle='--', alpha=0.4)
                     self.canvas.draw()
                     return
                 else:
@@ -974,6 +1150,38 @@ class AudioApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Error al carregar el fitxer: {e}")
 
+    def draw_harmonic_thd_table(self, signal, fs, H=6):
+        """Dibuixa una taula amb els valors de THD per cada harmonic."""
+        _, harmonics = compute_THD_harmonic(signal, fs, len(signal), H=H)
+        if not harmonics:
+            return
+
+        if self.selected_thd_type == "THD_F":
+            col_labels = ["Harmònic", "Freq (Hz)", "THD_F (%)"]
+            table_data = [
+                [str(h["h"]), f"{h['freq']:.0f}", f"{h['thd_f_pct']:.2f}"]
+                for h in harmonics
+            ]
+        else:
+            col_labels = ["Harmònic", "Freq (Hz)", "THD_RMS (%)"]
+            table_data = [
+                [str(h["h"]), f"{h['freq']:.0f}", f"{h['thd_rms_pct']:.2f}"]
+                for h in harmonics
+            ]
+
+        table = self.ax1.table(
+            cellText=table_data,
+            colLabels=col_labels,
+            loc="upper right",
+            cellLoc="center",
+            colLoc="center",
+            bbox=[0.70, 0.55, 0.27, 0.30],
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(7)
+        table.scale(0.95, 0.95)
+        self.ax1.figure.subplots_adjust(right=0.80)
+
     def download_recorded_wav(self):
         """Descarrega el WAV de la gravació realitzada"""
         if self.signal is None or self.fs is None:
@@ -1013,12 +1221,15 @@ class AudioApp(tk.Tk):
             return
 
         try:
-            # Crear figura A4 amb text i gràfic
-            fig = plt.figure(figsize=(8.27, 11.69))  # A4
+            # Crear figura mantenint la mateixa proporció que a l'app (10:6)
+            fig_width = 8.0
+            fig_height = fig_width * 6 / 10  # Mantenir proporció 10:6
+            fig = plt.figure(figsize=(fig_width, fig_height), constrained_layout=False)
+            
             # Frase inicial amb el resultat
             result_text = self.thd_label.cget("text") if hasattr(self, 'thd_label') else "Resultat no disponible"
             header = f"DistorLab - Informe d'anàlisi\n\nEl seu resultat és: {result_text}"
-            fig.suptitle(header, fontsize=14, fontweight='bold')
+            fig.suptitle(header, fontsize=12, fontweight='bold', y=0.95)
 
             ax = fig.add_subplot(111)
             # Recalcular FFT per al PDF
@@ -1031,21 +1242,35 @@ class AudioApp(tk.Tk):
             if len(freqs) == 0:
                 ax.text(0.5, 0.5, "No hi ha dades FFT vàlides per mostrar.", ha='center')
             else:
-                spectrum = spectrum / np.max(spectrum)
-                ax.plot(freqs, spectrum, color="#1e88e5", linewidth=1.5)
-                ax.set_xscale('log')
+                eps = 1e-12
+                spectrum_db = 20 * np.log10(spectrum / (np.max(spectrum) + eps) + eps)
+                ax.plot(freqs, spectrum_db, color="#1e88e5", linewidth=1.5)
+                ax.set_xscale('log', nonpositive='clip')
                 ax.set_xlim([20, 20000])
-                ax.set_ylim([0, 1])
-            ax.set_title("Resposta en freqüència (FFT)")
-            ax.set_xlabel("Freqüència (Hz)")
-            ax.set_ylabel("Amplitud normalitzada (0-1)")
+                ax.set_ylim([np.min(spectrum_db) - 5, np.max(spectrum_db) + 5])
+            ax.set_title("Resposta en freqüència (FFT)", fontsize=11, pad=12)
+            ax.set_xlabel("Freqüència (Hz)", fontsize=10)
+            ax.set_ylabel("Amplitud (dB rel.)", fontsize=10)
             ax.grid(True, linestyle="--", alpha=0.4)
 
-            fig.savefig(file_path, format='pdf', bbox_inches='tight')
+            fig.subplots_adjust(top=0.78)
+            fig.savefig(file_path, format='pdf', bbox_inches='tight', pad_inches=0.3)
             plt.close(fig)
             messagebox.showinfo("Èxit", f"Informe PDF desat a:\n{file_path}")
         except Exception as e:
             messagebox.showerror("Error", f"No s'ha pogut generar el PDF: {e}")
+
+    def on_close(self):
+        """Tanca l'aplicació netament i allibera recursos d'àudio."""
+        try:
+            sd.stop()
+        except Exception:
+            pass
+        try:
+            plt.close('all')
+        except Exception:
+            pass
+        self.destroy()
 
 if __name__ == "__main__":
     app = AudioApp()

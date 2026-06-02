@@ -9,11 +9,12 @@ def plot_fft(signal, fs):
     fft = np.abs(np.fft.rfft(signal)) / N
 
     plt.figure()
-    plt.plot(freqs, 20 * np.log10(fft))
+    plt.semilogx(freqs, 20 * np.log10(fft))
     plt.title("Espectre de la senyal")
     plt.xlabel("Freqüència (Hz)")
     plt.ylabel("Amplitud (dB)")
-    plt.grid()
+    plt.xscale('log', nonpositive='clip')
+    plt.grid(True, which='both', linestyle='--', alpha=0.4)
     plt.show()
 
 def extract_fundamental_note(signal, fs):
@@ -158,7 +159,7 @@ def segment_signal(signal, num_partitions):
         segments.append(signal[start_index:end_index])
     return segments
 
-def compute_THD_sweep(signal, num_partitions, segment_length=2048):
+def compute_THD_sweep(signal, fs, num_partitions, segment_length=2048):
     """
     Calculem el THD de cada segment per poder plotejar el resultat de manera gràfica.
     Retornem una array de valors i freqs.
@@ -166,18 +167,17 @@ def compute_THD_sweep(signal, num_partitions, segment_length=2048):
     signal_segments = segment_signal(signal, num_partitions)
     thd_values = []
     dominant_frequencies = []
-    fs = 48000
 
     for segment in signal_segments:
-        #calculem la thd de cada segment
+        # calcuem la thd de cada segment
         thd = compute_THD_F(segment, fs, len(segment))
         thd_values.append(thd)
-        #calculem la freq dominant de cada segment
+        # calcuem la freq dominant de cada segment
         spectrum = np.fft.fft(segment)
         freqs = np.fft.fftfreq(len(segment), 1/fs)
         magnitude = np.abs(spectrum[:len(segment)//2])
         freqs = freqs[:len(segment)//2]
-        #trobem el pic màxim (ignora DC)
+        # trobem el pic màxim (ignora DC)
         idx_peak = np.argmax(magnitude[1:]) + 1
         dominant_freq = freqs[idx_peak]
         dominant_frequencies.append(dominant_freq)
@@ -193,9 +193,9 @@ def plot_THDs(thd_values, dominant_frequencies):
     plt.xlabel("Frequency (Hz)")
     plt.ylabel("THD (%)")
     plt.title("THD vs. Frequency")
-    plt.grid(True)
-    plt.xscale('log') # Set the x-axis scale to logarithmic
-    plt.xlim([20, 20000]) # Set the x-axis limits from 20 Hz to 20 kHz
+    plt.xscale('log', nonpositive='clip')
+    plt.xlim([20, 20000])
+    plt.grid(True, which='both', linestyle='--', alpha=0.4)
     plt.text(0.7, 0.85, f'Mean THD: {np.mean(thd_values):.2f}%', transform=plt.gca().transAxes, fontsize=10, verticalalignment='top')
     plt.show()
 
@@ -206,5 +206,43 @@ def compute_THD_via_farina():
     f = adspy.Farina(20, 20, 20000)
     return f.getTHD()
 
-# mirar q farina sense distorsio dona distorsio i testejarho (sha de pulir farina)
-    
+def compute_THD_harmonic(signal, fs, N=None, H=6):
+    """
+    Calcula el THD per harmónic per a mostrar-ho als gràfics.
+    """
+    x = np.asarray(signal, dtype=np.float64)
+    if N is None:
+        N = len(x)
+    x = x[:N]
+
+    spectrum = np.abs(np.fft.fft(x, n=N))
+    freqs = np.fft.fftfreq(N, 1/fs)[:N//2]
+    magnitude = spectrum[:N//2]
+
+    if len(magnitude) < 2:
+        return None, []
+
+    idx_fund = np.argmax(magnitude[1:]) + 1
+    f0 = freqs[idx_fund]
+    A1 = magnitude[idx_fund] + 1e-15
+    ac_energy = np.sum(magnitude[1:] ** 2)
+    rms_ac = np.sqrt(ac_energy) if ac_energy > 0 else 1e-15
+
+    harmonics = []
+    for h in range(2, H):
+        harmonic_freq = f0 * h
+        if harmonic_freq >= fs / 2:
+            break
+        idx_harm = np.argmin(np.abs(freqs - harmonic_freq))
+        Ah = magnitude[idx_harm]
+        harmonics.append({
+            "h": h,
+            "freq": freqs[idx_harm],
+            "A": Ah,
+            "dBr": 20 * np.log10((Ah + 1e-15) / A1),
+            "thd_f_pct": (Ah / A1) * 100.0,
+            "thd_rms_pct": (Ah / rms_ac) * 100.0,
+        })
+
+    return f0, harmonics
+
