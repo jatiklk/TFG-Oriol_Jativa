@@ -42,8 +42,8 @@ class Farina:
         self.probe = sweep_log(f0, f1, duration, fs, A) #aqui te un fade in i un fade out by degfault de 0.1 sec
         R = np.log(f1 / f0)
         k = np.exp(np.arange(N) * R / N)
-        print(f"tamany de la k: {len(k)}")
-        print(f"tamany de la probe: {len(self.probe)}")
+        # print(f"tamany de la k: {len(k)}")
+        # print(f"tamany de la probe: {len(self.probe)}")
         self.inv_probe = np.flip(self.probe) / k
 
         # @TEST: test that probe convolved with inverse has flat spectrum,
@@ -77,23 +77,39 @@ class Farina:
         if normalize:
             self.far_response = adsp.normalize(self.far_response)
 
+        if self.far_response.size == 0:
+            raise ValueError("Farina response is empty")
+
         amax = np.argmax(self.far_response)
         level = adsp.level_detect(self.far_response, self.fs)
-        off = int(self.fs/10)
-        amin = np.argwhere(level[amax-off:amax] < 0.05)[-1][0]
+        off = int(self.fs / 10)
+
+        start_idx = max(0, amax - off)
+        pre_level = level[start_idx:amax]
+        if pre_level.size == 0 or not np.any(pre_level < 0.05):
+            amin = 0
+        else:
+            amin = np.argwhere(pre_level < 0.05)[-1][0]
+
         amax = amax - (off - amin)
-        end = amax + np.argwhere(level[amax:] < 10**(-60/20))[0][0]
+
+        post_level = level[amax:]
+        end_candidates = np.argwhere(post_level < 10**(-60/20))
+        if end_candidates.size == 0:
+            end = len(self.far_response)
+        else:
+            end = amax + end_candidates[0][0]
 
         self.harm_responses = [self.far_response[amax:end]]
 
-        figure, ax = plt.subplots(len(self.harm_times)+1, 1, figsize=(10, 2*len(self.harm_times))) 
-        if log:
-            ax[0].plot(20*np.log10(np.abs(self.far_response)))
-            ax[0].set_ylim([-90,0])
-        else:
-            ax[0].plot(self.far_response)
-            ax[0].set_ylim([-1,1])
-        colors = ['r', 'g', 'b', 'm', 'c', 'y', 'k', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 'navy', 'teal', 'coral', 'gold', 'indigo', 'lime']
+        # figure, ax = plt.subplots(len(self.harm_times)+1, 1, figsize=(10, 2*len(self.harm_times))) 
+        # if log:
+        #     ax[0].plot(20*np.log10(np.abs(self.far_response)))
+        #     ax[0].set_ylim([-90,0])
+        # else:
+        #     ax[0].plot(self.far_response)
+        #     ax[0].set_ylim([-1,1])
+        # colors = ['r', 'g', 'b', 'm', 'c', 'y', 'k', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 'navy', 'teal', 'coral', 'gold', 'indigo', 'lime']
 
         for i in range(1, len(self.harm_times)):
             start = amax - self.harm_times[i]
@@ -110,18 +126,16 @@ class Farina:
             # else:
             #     # If guard band eliminates window, create minimal response
             #     self.harm_responses.append(np.array([0]))
-            if log:
-                ax[i].plot(20*np.log10(np.abs(self.harm_responses[i-1])))
-                ax[i].set_ylim([-90,0])
-            else:
-                ax[i].plot(self.harm_responses[i-1])
-                ax[i].set_ylim([-1,1])
+            # if log:
+            #     ax[i].plot(20*np.log10(np.abs(self.harm_responses[i-1])))
+            #     ax[i].set_ylim([-90,0])
+            # else:
+            #     ax[i].plot(self.harm_responses[i-1])
+            #     ax[i].set_ylim([-1,1])
             
-            ax[0].axvline(x=self.harm_times[i], color=colors[i], linestyle='--')
+            # ax[0].axvline(x=self.harm_times[i], color=colors[i], linestyle='--')
             # ax[0].axvline(x=end, color=colors[i], linestyle=':')
         
-
-        plt.show()
            
         
     def _check_meas(func):

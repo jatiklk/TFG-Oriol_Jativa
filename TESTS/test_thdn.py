@@ -44,6 +44,25 @@ class TestTHDNWithSynthTone(unittest.TestCase):
         # Compute THD+N and assert it's greater than 0 due to noise
         thdn_computed = compute_THDN(tone, fs, N=len(tone))
         self.assertGreater(thdn_computed, 0.0, msg="THD+N with noise should be greater than 0")
+    
+    def test_thdn_with_harmonics_and_noise(self):
+        # Test amb harmònics i soroll simultanis
+        fs = 48000
+        dur = 1.0
+        f0 = 1000.0
+        thd_target = 0.05  # 5% THD
+        noise_level = 0.01  # 1% soroll
+
+        tone = synth_tone_with_thd_and_noise(fs=fs, dur=dur, f0=f0,
+                                            thd_target=thd_target,
+                                            noise_level=noise_level)
+
+        thdn_computed = compute_THDN(tone, fs, N=len(tone))
+
+        # El THD+N ha de ser estrictament superior al THD sol (5%)
+        # ja que el soroll afegeix contribució addicional al residu
+        self.assertGreater(thdn_computed, thd_target * 100,
+                        msg="THD+N amb soroll ha de ser superior al THD sol")
 
 
 # Para correr el test

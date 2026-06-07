@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from scipy.io.wavfile import write
-from analyzer_THD import compute_THD_F, compute_THDN
+from analyzer_THD import compute_THD_F, compute_THD_rms
 from generator import synth_tone_with_thd 
 
 class TestTHD(unittest.TestCase):

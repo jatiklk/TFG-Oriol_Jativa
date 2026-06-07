@@ -72,25 +72,10 @@ class Farina:
         end = amax + np.argwhere(level[amax:] < 10**(-60/20))[0][0]
 
         self.harm_responses = [self.far_response[amax:end]]
-
-        figure, ax = plt.subplots(len(self.harm_times)+1, 1, figsize=(10, 2*len(self.harm_times))) 
-    
-    
-        ax[0].plot(self.far_response)
-        ax[0].set_ylim([-1,1])
-        colors = ['r', 'g', 'b', 'm', 'c', 'y', 'k', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 'navy', 'teal', 'coral', 'gold', 'indigo', 'lime']
-
         for i in range(1, len(self.harm_times)):
             start = amax - self.harm_times[i]
             end = amax - self.harm_times[i-1]
             self.harm_responses.append(self.far_response[start:end])
-        
-            ax[i].plot(self.harm_responses[i-1])
-            ax[i].set_ylim([-1,1])
-            
-            ax[0].axvline(x=self.harm_times[i], color=colors[i], linestyle='--')
-        
-        plt.show()
 
     def _check_meas(func):
         """

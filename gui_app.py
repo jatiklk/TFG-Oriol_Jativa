@@ -14,7 +14,8 @@ import sounddevice as sd
 from audio_input import record_audio, get_input_devices
 from analyzer_THD import plot_fft, extract_impulse_response, compute_THD_F, compute_THD_rms, compute_THDN, compute_THD_sweep, compute_THD_harmonic
 from analyzer_IMD import compute_IMD_smpte, compute_IMD_ccif
-from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_tanh, apply_nonlinear_distortion, synth_tone_with_thd, synth_tone_with_thd_and_noise, synth_two_tones
+from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_tanh, apply_nonlinear_distortion, synth_tone_with_thd, synth_tone_with_thd_and_noise, synth_two_tones, sweep_log
+from custom_farina import Farina
 
 class AudioApp(tk.Tk):
     def __init__(self):
@@ -27,11 +28,16 @@ class AudioApp(tk.Tk):
         self.signal = None
         self.fs = None
         self.is_recording_source = False
-        self.thd_diagram_image = self.load_thd_diagram_image()
+        self.thd_diagram_image = self.load_diagram_image("thd_diagram.png", max_width=320)
+        self.imd_diagram_image = self.load_diagram_image("IMD_diagram.PNG", max_width=480)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         
         # Mostrar la pantalla inicial de selecció
         self.show_selection_screen()
+    
+    def load_thd_diagram_image(self, max_width=640):
+        """Carrega la imatge THD amb l'amplada màxima indicada."""
+        return self.load_diagram_image("thd_diagram.png", max_width)
     
     def show_selection_screen(self):
         """Mostra la pantalla inicial per seleccionar entre THD i IMD"""
@@ -65,20 +71,14 @@ class AudioApp(tk.Tk):
                                    command=self.show_simulator_screen,
                                    width=20)
         simulator_btn.pack(pady=10)
-        
-        # Botó per generar una senyal de prova (disponible a la pàgina principal)
-        gen_test_main_btn = ttk.Button(main_frame, text="Generar senyal prova", 
-                           command=self.show_thd_test_signal_dialog,
-                           width=20)
-        gen_test_main_btn.pack(pady=10)
     
-    def load_thd_diagram_image(self, max_width=640):
-        """Carrega la imatge del diagrama THD si existeix a la carpeta de l'aplicació.
+    def load_diagram_image(self, file_name, max_width=640):
+        """Carrega una imatge de diagrama si existeix a la carpeta de l'aplicació.
 
         Si l'amplada de la imatge és més gran que `max_width`, es torna una versió
         reduïda utilitzant `subsample` per evitar dependre de PIL.
         """
-        filename = os.path.join(os.path.dirname(__file__), "thd_diagram.png")
+        filename = os.path.join(os.path.dirname(__file__), file_name)
         if os.path.exists(filename):
             try:
                 img = tk.PhotoImage(file=filename)
@@ -94,6 +94,7 @@ class AudioApp(tk.Tk):
             except Exception:
                 return img
         return None
+
     def select_analysis_type(self, analysis_type):
         """Gestiona la selecció del tipus d'anàlisi"""
         self.selected_analysis_type = analysis_type
@@ -102,7 +103,7 @@ class AudioApp(tk.Tk):
             self.show_thd_selection_screen()
         elif analysis_type == "IMD":
             self.show_imd_screen()
-    
+
     def show_thd_selection_screen(self):
         """Mostra la pantalla de selecció del tipus de THD"""
         # Esborrar els widgets anteriors
@@ -124,13 +125,15 @@ class AudioApp(tk.Tk):
         title_label.pack(pady=20)
 
         # Mostrar diagrama THD una mica més gran (un pas abans de gravar/importar)
-        thd_small = self.load_thd_diagram_image(max_width=480)
+        thd_small = self.thd_diagram_image
         if thd_small is not None:
             image_small_frame = ttk.Frame(main_frame)
             image_small_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 10))
             img_label_small = ttk.Label(image_small_frame, image=thd_small)
             img_label_small.image = thd_small
             img_label_small.pack()
+
+        thd_options = ["THD_F", "THD_RMS", "THD_N", "THD_SWEEP", "Farina"]
 
         # Frame per al desplegable
         dropdown_frame = ttk.Frame(main_frame)
@@ -141,7 +144,6 @@ class AudioApp(tk.Tk):
         label.pack(side=tk.LEFT, padx=5)
         
         # Desplegable amb les opcions
-        thd_options = ["THD_F", "THD_RMS", "THD_N", "THD_SWEEP"]
         self.thd_dropdown = ttk.Combobox(dropdown_frame, values=thd_options, 
                                          state="readonly", width=20)
         self.thd_dropdown.set(thd_options[0])  # Valor per defecte
@@ -152,6 +154,12 @@ class AudioApp(tk.Tk):
                                  command=self.proceed_with_thd_analysis,
                                  width=20)
         continue_btn.pack(pady=20)
+        
+        # Botó generar senyal prova
+        generate_btn = ttk.Button(main_frame, text="Generar senyal prova", 
+                                 command=self.show_thd_test_signal_dialog,
+                                 width=20)
+        generate_btn.pack(pady=10)
     
     def proceed_with_thd_analysis(self):
         """Continua amb l'anàlisi de THD seleccionat"""
@@ -161,6 +169,8 @@ class AudioApp(tk.Tk):
         # Si és THD_F, THD_N o THD_RMS, mostrar opcions de generar sinusoide o importar
         if self.selected_thd_type == "THD_SWEEP":
             self.show_sweep_input_screen()
+        elif self.selected_thd_type == "Farina":
+            self.show_farina_screen()
         else:
             self.show_signal_input_screen()
     
@@ -198,7 +208,7 @@ class AudioApp(tk.Tk):
         
         
     
-    def show_record_audio_screen(self):
+    def show_record_audio_screen(self, from_farina=False):
         """Mostra una pantalla per triar l'entrada del sistema i gravar àudio"""
         for widget in self.winfo_children():
             widget.destroy()
@@ -209,8 +219,9 @@ class AudioApp(tk.Tk):
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(expand=True, fill=tk.BOTH)
 
+        back_command = self.show_farina_screen if from_farina else self.show_signal_input_screen
         back_btn = ttk.Button(main_frame, text="← Tornar", 
-                             command=self.show_signal_input_screen)
+                             command=back_command)
         back_btn.pack(anchor=tk.NW, pady=(0, 20))
 
         title_label = ttk.Label(main_frame, text="Enregistra àudio", 
@@ -270,7 +281,7 @@ class AudioApp(tk.Tk):
         self.start_record_button.pack(side=tk.LEFT, padx=5)
 
         self.cancel_record_button = ttk.Button(button_frame, text="Cancelar", 
-                                              command=self.show_signal_input_screen)
+                                              command=back_command)
         self.cancel_record_button.pack(side=tk.LEFT, padx=5)
 
     def start_recording(self, input_devices):
@@ -328,6 +339,16 @@ class AudioApp(tk.Tk):
         if success:
             self.is_recording_source = True
             messagebox.showinfo("Èxit", "Gravació completa")
+            if self.selected_analysis_type == "THD" and self.selected_thd_type == "Farina":
+                try:
+                    dur = getattr(self, 'farina_record_dur', 5.0)
+                    A = getattr(self, 'farina_record_A', 0.9)
+                    fs = getattr(self, 'farina_record_fs', self.fs)
+                    far = Farina(A=A, duration=dur, fs=fs)
+                    far.process_measurement(self.signal, log=False)
+                    self.current_farina = far
+                except Exception as e:
+                    messagebox.showerror("Error", f"Error processant la gravació amb Farina: {e}")
             self.show_analysis_screen()
         else:
             messagebox.showerror("Error", f"Error al gravar: {error}")
@@ -363,6 +384,151 @@ class AudioApp(tk.Tk):
                                command=self.import_wav_signal,
                                width=25)
         import_btn.pack(pady=10)
+
+    def show_farina_screen(self):
+        """Mostra la pantalla per generar/descarregar la sweep usada pel mètode Farina i processar-la"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                             command=self.show_thd_selection_screen)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="Farina - Sweep Logarítmic", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=10)
+
+        info_label = ttk.Label(main_frame, text="S'utilitzen paràmetres fixos per Farina: durada=5s, amplitud=0.9, fs=48000",
+                               font=("Arial", 10), foreground="#333333", wraplength=760)
+        info_label.pack(pady=(0, 15))
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(pady=15)
+
+        gen_btn = ttk.Button(btn_frame, text="Descarregar senyal de test", 
+                      command=self._download_farina_probe_default)
+        gen_btn.pack(side=tk.LEFT, padx=5)
+
+        record_btn = ttk.Button(btn_frame, text="Enregistra WAV", 
+                       command=self._prepare_farina_record)
+        record_btn.pack(side=tk.LEFT, padx=5)
+
+        import_btn = ttk.Button(btn_frame, text="Importar WAV", 
+                     command=self._import_and_analyze_farina)
+        import_btn.pack(side=tk.LEFT, padx=5)
+
+    def _generate_and_process_farina(self):
+        # deprecated: use dedicated generate method
+        self._generate_farina_probe()
+
+    def _generate_farina_probe(self):
+        dur = 5.0
+        A = 0.9
+        fs = 48000
+
+        try:
+            far = Farina(A=A, duration=dur, fs=fs)
+            # Process the probe against itself to produce the far_response/IRs
+            far.process_measurement(far.probe, log=False)
+            # Store for later analysis
+            self.current_farina = far
+            # Set the probe as current signal so user can inspect FFT
+            self.signal = far.probe.astype(np.float64)
+            self.fs = fs
+            self.selected_analysis_type = "THD"
+            self.selected_thd_type = "Farina"
+            self.is_recording_source = False
+            # Show analysis screen which will call analyze_signal
+            self.show_analysis_screen()
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut generar la sweep Farina: {e}")
+
+    def _prepare_farina_record(self):
+        self.farina_record_dur = 5.0
+        self.farina_record_A = 0.9
+        self.farina_record_fs = 48000
+        self.show_record_audio_screen(from_farina=True)
+
+    def _download_farina_probe_default(self):
+        """Genera i descarrega la probe Farina amb paràmetres per defecte, sense analitzar."""
+        # Paràmetres per defecte (sense opció a l'usuari)
+        dur = 5.0
+        A = 0.9
+        fs = 48000
+        try:
+            far = Farina(A=A, duration=dur, fs=fs)
+            sweep = far.probe
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut generar la sweep Farina: {e}")
+            return
+
+        path = filedialog.asksaveasfilename(defaultextension='.wav', filetypes=[('WAV files', '*.wav')], initialfile='farina_probe.wav')
+        if not path:
+            return
+
+        try:
+            wavfile.write(path, fs, sweep.astype(np.float32))
+            messagebox.showinfo("Desat", f"Sweep Farina (test) desada a: {path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut desar el fitxer: {e}")
+
+    def _save_farina_sweep(self):
+        dur = 5.0
+        A = 0.9
+        fs = 48000
+        # Crear un objecte Farina amb els paràmetres i desar la seva 'probe' exacta
+        try:
+            far = Farina(A=A, duration=dur, fs=fs)
+            sweep = far.probe
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut generar la sweep Farina: {e}")
+            return
+
+        path = filedialog.asksaveasfilename(defaultextension='.wav', filetypes=[('WAV files', '*.wav')])
+        if not path:
+            return
+
+        try:
+            wavfile.write(path, fs, sweep.astype(np.float32))
+            messagebox.showinfo("Desat", f"Sweep Farina desada a: {path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"No s'ha pogut desar el fitxer: {e}")
+
+    def _import_and_analyze_farina(self):
+        # Ask user for WAV file and analyze with Farina processing
+        file_path = filedialog.askopenfilename(filetypes=[("WAV files", "*.wav")])
+        if not file_path:
+            return
+        try:
+            fs, data = wavfile.read(file_path)
+            if len(data.shape) > 1:
+                data = data[:, 0]
+            # normalize to float
+            if data.dtype != np.float32 and data.dtype != np.float64:
+                data = data.astype(np.float32) / np.max(np.abs(data))
+            measurement = data.astype(np.float64)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al carregar el fitxer: {e}")
+            return
+
+        dur = 5.0
+        A = 0.9
+        try:
+            # Create Farina object with same params and process measurement
+            far = Farina(A=A, duration=dur, fs=fs)
+            far.process_measurement(measurement, log=False)
+            self.current_farina = far
+            self.signal = measurement
+            self.fs = fs
+            self.selected_analysis_type = "THD"
+            self.selected_thd_type = "Farina"
+            self.is_recording_source = False
+            self.show_analysis_screen()
+        except Exception as e:
+            messagebox.showerror("Error", f"Error processant amb Farina: {e}")
 
     def import_wav_signal(self):
         """Importa un fitxer WAV"""
@@ -400,6 +566,45 @@ class AudioApp(tk.Tk):
             self.show_distortion_selection_screen()
         except Exception as e:
             messagebox.showerror("Error", f"Error al carregar el fitxer: {e}")
+    
+    def show_distortion_selection_screen(self):
+        """Mostra opcions de distorsió per aplicar al WAV carregat"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_simulator_screen)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="Selecciona el tipus de distorsió", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        # Selecció del mètode de distorsió
+        method_label = ttk.Label(main_frame, text="Mètode de distorsió:")
+        method_label.pack(pady=5)
+        
+        methods = ["soft_clip_tanh", "apply_nonlinear_distortion"]
+        self.distortion_dropdown = ttk.Combobox(main_frame, values=methods, state="readonly", width=30)
+        self.distortion_dropdown.set(methods[0])
+        self.distortion_dropdown.pack(pady=5)
+
+        # Paràmetre de distorsió
+        param_label = ttk.Label(main_frame, text="Paràmetre de distorsió (0.0 - 1.0):")
+        param_label.pack(pady=5)
+        
+        self.param_entry = ttk.Entry(main_frame, width=20)
+        self.param_entry.insert(0, "0.5")
+        self.param_entry.pack(pady=5)
+
+        # Botó per aplicar distorsió
+        apply_btn = ttk.Button(main_frame, text="Aplicar distorsió", 
+                               command=self.apply_selected_distortion,
+                               width=30)
+        apply_btn.pack(pady=20)
     
     def show_sweep_generation_dialog(self):
         """Mostra un diàleg per generar un sweep"""
@@ -638,6 +843,15 @@ class AudioApp(tk.Tk):
         self.imd_dropdown.set(self.selected_imd_method)
         self.imd_dropdown.bind("<<ComboboxSelected>>", self.on_imd_method_changed)
         self.imd_dropdown.pack(side=tk.LEFT)
+
+        # Mostrar diagrama IMD una mica més avall, després de triar el tipus d'anàlisi
+        imd_small = self.imd_diagram_image if self.imd_diagram_image is not None else None
+        if imd_small is not None:
+            image_small_frame = ttk.Frame(main_frame)
+            image_small_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 10))
+            img_label_small = ttk.Label(image_small_frame, image=imd_small)
+            img_label_small.image = imd_small
+            img_label_small.pack()
 
         info_label = ttk.Label(main_frame, 
                                text="Prem un botó per generar la senyal amb el mètode triat, o importa un WAV.",
@@ -1009,8 +1223,15 @@ class AudioApp(tk.Tk):
             hint_label = ttk.Label(main_frame, text=hint_text, font=("Arial", 10), foreground="#333333", wraplength=760)
             hint_label.pack(fill=tk.X, pady=(0, 10))
 
-        # Gràfics: només un eix per FFT / THD
-        self.fig, self.ax1 = plt.subplots(figsize=(10, 6))
+        # Gràfics: un o dos eixos segons el tipus d'anàlisi
+        if self.selected_analysis_type == "THD" and self.selected_thd_type == "Farina":
+            self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            self.ax2.set_title("Impulse Response", fontsize=12, fontweight="bold")
+            self.ax2.set_xlabel("Mostres")
+            self.ax2.set_ylabel("Amplitud")
+        else:
+            self.fig, self.ax1 = plt.subplots(figsize=(10, 6))
+            self.ax2 = None
         self.fig.tight_layout(pad=4.0)
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -1055,6 +1276,8 @@ class AudioApp(tk.Tk):
             messagebox.showerror("Error", "No hi ha cap senyal per analitzar.")
             return
         self.ax1.clear()
+        if self.ax2 is not None:
+            self.ax2.clear()
         
         # FFT plot
         N = len(signal)
@@ -1096,6 +1319,28 @@ class AudioApp(tk.Tk):
                 elif self.selected_thd_type == "THD_N":
                     thd = compute_THDN(signal, fs, len(signal))
                     self.thd_label.config(text=f"THD+N: {thd:.2f}%")
+                elif self.selected_thd_type == "Farina":
+                    # Farina analysis: expect a Farina object in self.current_farina
+                    if hasattr(self, 'current_farina') and self.current_farina is not None:
+                        try:
+                            thd = self.current_farina.getTHD()
+                            self.thd_label.config(text=f"Farina THD: {thd:.2f}%")
+                            if self.ax2 is not None:
+                                try:
+                                    ir = self.current_farina.get_IR()
+                                    self.ax2.plot(ir, color='#d32f2f')
+                                    self.ax2.set_xlim([0, len(ir)])
+                                    self.ax2.set_ylim([np.min(ir) - 0.01, np.max(ir) + 0.01])
+                                    self.ax2.set_title('Impulse Response', fontsize=12, fontweight='bold')
+                                    self.ax2.set_xlabel('Mostres')
+                                    self.ax2.set_ylabel('Amplitud')
+                                    self.ax2.grid(True, linestyle='--', alpha=0.4)
+                                except Exception:
+                                    pass
+                        except Exception as e:
+                            self.thd_label.config(text=f"Error Farina THD: {e}")
+                    else:
+                        self.thd_label.config(text="Farina: objecte no disponible")
                 elif self.selected_thd_type == "THD_SWEEP":
                     thd_values, freqs = compute_THD_sweep(signal, fs, num_partitions=10)
                     self.thd_label.config(text=f"THD_SWEEP (mitjana): {np.mean(thd_values):.2f}%")
