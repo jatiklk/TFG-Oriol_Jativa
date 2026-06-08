@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from analyzer_IMD import compute_IMD_smpte
-from generator import synth_two_tones, apply_nonlinear_distortion, soft_clip_tanh
+from generator import synth_two_tones, apply_nonlinear_distortion, soft_clip_tanh, generate_signal_with_target_imd_QUADRARTIC
 
 class TestIMDSMPTE(unittest.TestCase):
 
@@ -35,6 +35,20 @@ class TestIMDSMPTE(unittest.TestCase):
         print(f"\nIMD (SMPTE) amb Soft Clipper (dist={dist_tanh_test}): {imd_tanh_test:.2f} %")
         self.assertTrue(imd_tanh_test < 1.0, f"S'esperava IMD < 1% per soft clipper (tanh), però es va obtenir {imd_tanh_test:.2f}%")
         print("PASS: La senyal amb soft clipper (tanh) té IMD SMPTE baix, com s'espera per a una no-linealitat senar.")
+    
+    def test_target_imd_generator_smpte(self):
+        """Test 4: Senyal generat amb IMD objectiu del 5% (SMPTE)"""
+        target_imd = 5.0
+        distorted_signal, final_alpha, actual_imd, iterations = generate_signal_with_target_imd_QUADRARTIC(
+            target_imd=target_imd,
+            fs=self.fs_test,
+            f1=self.f1_test,
+            f2=self.f2_test
+        )
+        imd_measured = compute_IMD_smpte(distorted_signal, self.fs_test, self.f1_test, self.f2_test)
+        print(f"\nIMD objectiu: {target_imd:.2f}%, IMD real del generador: {actual_imd:.2f}%, IMD mesurada: {imd_measured:.2f}%")
+        self.assertAlmostEqual(imd_measured, actual_imd, delta=0.5,
+                            msg=f"S'esperava IMD ~= {actual_imd:.2f}%, però es va obtenir {imd_measured:.2f}%")
 
 # Per executar els tests en un entorn de Colab/Jupyter
 if __name__ == '__main__':

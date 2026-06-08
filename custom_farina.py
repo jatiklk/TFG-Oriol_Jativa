@@ -138,6 +138,35 @@ class Farina:
         
            
         
+    def plot_far_response(self):
+        """
+        Mostra cada resposta harmònica en un subplot separat.
+        """
+        if self.far_response is None:
+            raise ValueError("Cal processar una mesura abans de visualitzar.")
+
+        n_harms = len(self.harm_responses)
+        fig, axes = plt.subplots(n_harms, 1, figsize=(12, 2.5 * n_harms))
+        if n_harms == 1:
+            axes = [axes]
+        fig.suptitle("Farina – Respostes harmòniques", fontsize=13, fontweight="bold")
+
+        colors = ['#e53935', '#43a047', '#1e88e5', '#8e24aa', '#fb8c00',
+                  '#00acc1', '#6d4c41', '#e91e63', '#00897b', '#fdd835']
+
+        for i, resp in enumerate(self.harm_responses):
+            ax = axes[i]
+            label = "IR fonamental (H1)" if i == 0 else f"Harmònic H{i + 1}"
+            color = colors[i % len(colors)] if i > 0 else '#455a64'
+            ax.plot(resp, color=color, linewidth=0.9)
+            ax.set_title(label, fontsize=10)
+            ax.set_xlabel("Mostres")
+            ax.set_ylabel("Amplitud")
+            ax.grid(True, linestyle='--', alpha=0.4)
+
+        fig.tight_layout(rect=[0, 0, 1, 0.96], h_pad=3.0)
+        plt.show()
+
     def _check_meas(func):
         """
         Decorator to make sure the measurement has been

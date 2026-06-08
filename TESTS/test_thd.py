@@ -25,6 +25,7 @@ class TestTHD(unittest.TestCase):
         x = np.sin(2*np.pi*f0*t)
         N = len(x)
         thd_measured = compute_THD_F(x, fs, N, H=5)/100 # tot i que sabem que es 0
+        print(thd_measured)
         # una sinusoidal pura hauria de tenir THD ≈ 0
         self.assertLess(thd_measured, 1e-4)
 

@@ -234,3 +234,56 @@ def generate_signal_with_target_imd_QUADRARTIC(target_imd,
     print(f"Max iterations reached. Target IMD: {target_imd:.2f}%, Achieved IMD: {actual_imd:.2f}%, Final Alpha: {current_alpha:.6f}")
     return distorted_signal, current_alpha, actual_imd, max_iterations
 
+def generate_signal_with_target_imd_senar(target_imd,
+                                          fs=48000, f1=19000.0, f2=20000.0, amp1=0.5, amp2=0.5,
+                                          dur=2.0,
+                                          initial_dist=0.1, tolerance=0.1, max_iterations=100,
+                                          dist_step_factor=1.2, dist_decay_factor=0.8):
+    """
+    Generates a two-tone signal and iteratively adjusts the 'dist' parameter of a soft_clip_tanh
+    distortion to achieve a target Intermodulation Distortion (IMD) using the CCIF method.
+
+    Args:
+        target_imd (float): The desired IMD value in percentage.
+        fs (int): Sampling frequency in Hz.
+        f1 (float): Frequency of the first tone in Hz (CCIF standard: 19000 Hz).
+        f2 (float): Frequency of the second tone in Hz (CCIF standard: 20000 Hz).
+        amp1 (float): Amplitude of the first tone.
+        amp2 (float): Amplitude of the second tone.
+        dur (float): Duration of the signal in seconds.
+        initial_dist (float): Starting value for the soft clipper distortion parameter.
+        tolerance (float): Acceptable deviation from the target IMD (in percentage).
+        max_iterations (int): Maximum number of iterations for dist adjustment.
+        dist_step_factor (float): Factor to multiply dist by if IMD is too low.
+        dist_decay_factor (float): Factor to multiply dist by if IMD is too high (should be < 1).
+
+    Returns:
+        tuple: A tuple containing:
+            - distorted_signal (np.ndarray): The signal with the achieved target IMD.
+            - final_dist (float): The dist coefficient that resulted in the target IMD.
+            - actual_imd (float): The actual IMD achieved.
+            - iterations (int): The number of iterations taken.
+    """
+    clean_signal = synth_two_tones(fs=fs, dur=dur, f1=f1, f2=f2, amp1=amp1, amp2=amp2)
+
+    current_dist = initial_dist
+    actual_imd = 0.0
+
+    for i in range(max_iterations):
+        current_dist = max(current_dist, 1e-8)
+
+        distorted_signal = soft_clip_tanh(clean_signal, dist=current_dist)
+
+        actual_imd = compute_IMD_ccif(distorted_signal, fs, f1, f2)
+
+        if abs(actual_imd - target_imd) <= tolerance:
+            print(f"Converged in {i+1} iterations. Target IMD: {target_imd:.2f}%, Actual IMD: {actual_imd:.2f}%, Dist: {current_dist:.6f}")
+            return distorted_signal, current_dist, actual_imd, i + 1
+
+        if actual_imd < target_imd:
+            current_dist *= dist_step_factor
+        else:
+            current_dist *= dist_decay_factor
+
+    print(f"Max iterations reached. Target IMD: {target_imd:.2f}%, Achieved IMD: {actual_imd:.2f}%, Final Dist: {current_dist:.6f}")
+    return distorted_signal, current_dist, actual_imd, max_iterations

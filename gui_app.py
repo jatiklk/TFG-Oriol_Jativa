@@ -4,6 +4,7 @@ from tkinter import filedialog
 from tkinter import simpledialog
 from tkinter import messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import numpy as np
 import threading
@@ -28,6 +29,7 @@ class AudioApp(tk.Tk):
         self.signal = None
         self.fs = None
         self.is_recording_source = False
+        self.distortion_applied = False
         self.thd_diagram_image = self.load_diagram_image("thd_diagram.png", max_width=320)
         self.imd_diagram_image = self.load_diagram_image("IMD_diagram.PNG", max_width=480)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -956,10 +958,11 @@ class AudioApp(tk.Tk):
         else:
             self.signal = apply_nonlinear_distortion(self.signal, alpha=p)
 
+        self.distortion_applied = True
         self.show_simulator_result_screen()
 
     def show_generator_distortion_dialog(self):
-        """Mostra un diàleg per generar una senyal distorsionada directament"""
+        """Mostra un menú amb botons per seleccionar el tipus de senyal a generar"""
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -970,93 +973,325 @@ class AudioApp(tk.Tk):
                               command=self.show_simulator_screen)
         back_btn.pack(anchor=tk.NW, pady=(0, 20))
 
-        title_label = ttk.Label(main_frame, text="Generador distorsionat", 
+        title_label = ttk.Label(main_frame, text="Selecciona el tipus de senyal", 
                                font=("Arial", 14, "bold"))
         title_label.pack(pady=20)
 
-        methods = ["sine", "synth_tone_with_thd", "synth_tone_with_thd_and_noise", "sweep_generator", "sweep_generator_linear"]
-        self.generator_dropdown = ttk.Combobox(main_frame, values=methods, state="readonly", width=30)
-        self.generator_dropdown.set(methods[0])
-        self.generator_dropdown.pack(pady=10)
+        # Botó Sinusoïdal
+        sine_btn = ttk.Button(main_frame, text="Sinusoïdal pur", 
+                             command=self.show_sine_dialog, width=35)
+        sine_btn.pack(pady=8)
 
+        # Botó THD
+        thd_btn = ttk.Button(main_frame, text="To amb THD", 
+                            command=self.show_synth_thd_dialog, width=35)
+        thd_btn.pack(pady=8)
+
+        # Botó THD + Soroll
+        thd_noise_btn = ttk.Button(main_frame, text="To amb THD + Soroll", 
+                                  command=self.show_synth_thd_noise_dialog, width=35)
+        thd_noise_btn.pack(pady=8)
+
+        # Botó Sweep
+        sweep_btn = ttk.Button(main_frame, text="Sweep (logarítmic/lineal)", 
+                              command=self.show_sweep_dialog, width=35)
+        sweep_btn.pack(pady=8)
+
+    def show_sine_dialog(self):
+        """Diàleg per generar un sinusoïdal pur"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_generator_distortion_dialog)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="Sinusoïdal pur", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        # Freq. mostratge
         fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
-        fs_label.pack(pady=3)
+        fs_label.pack(pady=5)
         fs_options = ["44100", "48000", "96000", "192000"]
-        self.generator_fs_dropdown = ttk.Combobox(main_frame, values=fs_options, state="readonly", width=17)
-        self.generator_fs_dropdown.set("48000")
-        self.generator_fs_dropdown.pack(pady=3)
+        self.sine_fs = ttk.Combobox(main_frame, values=fs_options, state="readonly", width=20)
+        self.sine_fs.set("48000")
+        self.sine_fs.pack(pady=5)
 
+        # Durada
         dur_label = ttk.Label(main_frame, text="Durada (segons):")
-        dur_label.pack(pady=3)
-        self.generator_dur_entry = ttk.Entry(main_frame, width=20)
-        self.generator_dur_entry.insert(0, "2")
-        self.generator_dur_entry.pack(pady=3)
+        dur_label.pack(pady=5)
+        self.sine_dur = ttk.Entry(main_frame, width=20)
+        self.sine_dur.insert(0, "2.0")
+        self.sine_dur.pack(pady=5)
 
-        f0_label = ttk.Label(main_frame, text="Freq. fonamental (Hz):")
-        f0_label.pack(pady=3)
-        self.generator_f0_entry = ttk.Entry(main_frame, width=20)
-        self.generator_f0_entry.insert(0, "1000")
-        self.generator_f0_entry.pack(pady=3)
+        # Freqüència
+        f0_label = ttk.Label(main_frame, text="Freqüència (Hz):")
+        f0_label.pack(pady=5)
+        self.sine_f0 = ttk.Entry(main_frame, width=20)
+        self.sine_f0.insert(0, "1000")
+        self.sine_f0.pack(pady=5)
 
+        # Amplitud
         amp_label = ttk.Label(main_frame, text="Amplitud (0-1):")
-        amp_label.pack(pady=3)
-        self.generator_amp_entry = ttk.Entry(main_frame, width=20)
-        self.generator_amp_entry.insert(0, "0.9")
-        self.generator_amp_entry.pack(pady=3)
+        amp_label.pack(pady=5)
+        self.sine_amp = ttk.Entry(main_frame, width=20)
+        self.sine_amp.insert(0, "0.9")
+        self.sine_amp.pack(pady=5)
 
-        thd_label = ttk.Label(main_frame, text="THD target (0-1):")
-        thd_label.pack(pady=3)
-        self.generator_thd_entry = ttk.Entry(main_frame, width=20)
-        self.generator_thd_entry.insert(0, "0.05")
-        self.generator_thd_entry.pack(pady=3)
+        generate_btn = ttk.Button(main_frame, text="Generar", 
+                                 command=self.generate_sine_signal, width=30)
+        generate_btn.pack(pady=20)
 
-        noise_label = ttk.Label(main_frame, text="Noise level (synth_tone_with_thd_and_noise):")
-        noise_label.pack(pady=3)
-        self.generator_noise_entry = ttk.Entry(main_frame, width=20)
-        self.generator_noise_entry.insert(0, "0.01")
-        self.generator_noise_entry.pack(pady=3)
-
-        dist_label = ttk.Label(main_frame, text="Distorsió (soft_clip/apply_nonlin):")
-        dist_label.pack(pady=3)
-        self.generator_dist_entry = ttk.Entry(main_frame, width=20)
-        self.generator_dist_entry.insert(0, "0.1")
-        self.generator_dist_entry.pack(pady=3)
-
-        apply_btn = ttk.Button(main_frame, text="Generar i descarregar/reproduir", 
-                               command=self.generate_distorted_signal)
-        apply_btn.pack(pady=10)
-
-        home_btn = ttk.Button(main_frame, text="Anar a l'inici", 
-                               command=self.show_selection_screen, width=30)
-        home_btn.pack(pady=10)
-
-    def generate_distorted_signal(self):
-        method = self.generator_dropdown.get()
+    def generate_sine_signal(self):
         try:
-            fs = int(self.generator_fs_dropdown.get())
-            dur = float(self.generator_dur_entry.get())
-            f0 = float(self.generator_f0_entry.get())
-            amp = float(self.generator_amp_entry.get())
-            thd_target = float(self.generator_thd_entry.get())
-            noise_level = float(self.generator_noise_entry.get())
-            dist = float(self.generator_dist_entry.get())
+            fs = int(self.sine_fs.get())
+            dur = float(self.sine_dur.get())
+            f0 = float(self.sine_f0.get())
+            amp = float(self.sine_amp.get())
+            
+            if dur <= 0 or f0 <= 0 or amp <= 0:
+                messagebox.showerror("Error", "Els paràmetres han de ser positius")
+                return
+                
+            self.signal = sine(fs, dur, f0, amp)
+            self.original_signal = self.signal.copy()
+            self.fs = fs
+            self.distortion_applied = False
+            self.show_simulator_result_screen()
         except ValueError:
             messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
-            return
 
-        if method == "sine":
-            self.signal = sine(fs, dur, f0, amp)
-        elif method == "synth_tone_with_thd":
+    def show_synth_thd_dialog(self):
+        """Diàleg per generar un to amb THD"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_generator_distortion_dialog)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="To amb THD", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        # Freq. mostratge
+        fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
+        fs_label.pack(pady=5)
+        fs_options = ["44100", "48000", "96000", "192000"]
+        self.thd_fs = ttk.Combobox(main_frame, values=fs_options, state="readonly", width=20)
+        self.thd_fs.set("48000")
+        self.thd_fs.pack(pady=5)
+
+        # Durada
+        dur_label = ttk.Label(main_frame, text="Durada (segons):")
+        dur_label.pack(pady=5)
+        self.thd_dur = ttk.Entry(main_frame, width=20)
+        self.thd_dur.insert(0, "2.0")
+        self.thd_dur.pack(pady=5)
+
+        # Freqüència
+        f0_label = ttk.Label(main_frame, text="Freqüència fonamental (Hz):")
+        f0_label.pack(pady=5)
+        self.thd_f0 = ttk.Entry(main_frame, width=20)
+        self.thd_f0.insert(0, "1000")
+        self.thd_f0.pack(pady=5)
+
+        # THD target
+        thd_label = ttk.Label(main_frame, text="THD target (0.0 - 1.0):")
+        thd_label.pack(pady=5)
+        self.thd_target = ttk.Entry(main_frame, width=20)
+        self.thd_target.insert(0, "0.05")
+        self.thd_target.pack(pady=5)
+
+        generate_btn = ttk.Button(main_frame, text="Generar", 
+                                 command=self.generate_synth_thd_signal, width=30)
+        generate_btn.pack(pady=20)
+
+    def generate_synth_thd_signal(self):
+        try:
+            fs = int(self.thd_fs.get())
+            dur = float(self.thd_dur.get())
+            f0 = float(self.thd_f0.get())
+            thd_target = float(self.thd_target.get())
+            
+            if dur <= 0 or f0 <= 0 or thd_target < 0:
+                messagebox.showerror("Error", "Els paràmetres han de ser positius")
+                return
+                
             self.signal = synth_tone_with_thd(fs, dur, f0, thd_target)
-        elif method == "synth_tone_with_thd_and_noise":
-            self.signal = synth_tone_with_thd_and_noise(fs, dur, f0, thd_target, noise_level=noise_level)
-        elif method == "sweep_generator":
-            self.signal = sweep_generator(fs, dur, f0, float(self.generator_f0_entry.get() or 20000))
-        else:
-            self.signal = sweep_generator_linear(fs, dur, f0, float(self.generator_f0_entry.get() or 20000))
+            self.original_signal = self.signal.copy()
+            self.fs = fs
+            self.distortion_applied = False
+            self.show_simulator_result_screen()
+        except ValueError:
+            messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
 
-        self.fs = fs
-        self.show_simulator_result_screen()
+    def show_synth_thd_noise_dialog(self):
+        """Diàleg per generar un to amb THD i soroll"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_generator_distortion_dialog)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="To amb THD + Soroll", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        # Freq. mostratge
+        fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
+        fs_label.pack(pady=5)
+        fs_options = ["44100", "48000", "96000", "192000"]
+        self.thd_noise_fs = ttk.Combobox(main_frame, values=fs_options, state="readonly", width=20)
+        self.thd_noise_fs.set("48000")
+        self.thd_noise_fs.pack(pady=5)
+
+        # Durada
+        dur_label = ttk.Label(main_frame, text="Durada (segons):")
+        dur_label.pack(pady=5)
+        self.thd_noise_dur = ttk.Entry(main_frame, width=20)
+        self.thd_noise_dur.insert(0, "2.0")
+        self.thd_noise_dur.pack(pady=5)
+
+        # Freqüència
+        f0_label = ttk.Label(main_frame, text="Freqüència fonamental (Hz):")
+        f0_label.pack(pady=5)
+        self.thd_noise_f0 = ttk.Entry(main_frame, width=20)
+        self.thd_noise_f0.insert(0, "1000")
+        self.thd_noise_f0.pack(pady=5)
+
+        # THD target
+        thd_label = ttk.Label(main_frame, text="THD target (0.0 - 1.0):")
+        thd_label.pack(pady=5)
+        self.thd_noise_target = ttk.Entry(main_frame, width=20)
+        self.thd_noise_target.insert(0, "0.05")
+        self.thd_noise_target.pack(pady=5)
+
+        # Noise level
+        noise_label = ttk.Label(main_frame, text="Nivell de soroll (0.0 - 0.1):")
+        noise_label.pack(pady=5)
+        self.thd_noise_level = ttk.Entry(main_frame, width=20)
+        self.thd_noise_level.insert(0, "0.01")
+        self.thd_noise_level.pack(pady=5)
+
+        generate_btn = ttk.Button(main_frame, text="Generar", 
+                                 command=self.generate_synth_thd_noise_signal, width=30)
+        generate_btn.pack(pady=20)
+
+    def generate_synth_thd_noise_signal(self):
+        try:
+            fs = int(self.thd_noise_fs.get())
+            dur = float(self.thd_noise_dur.get())
+            f0 = float(self.thd_noise_f0.get())
+            thd_target = float(self.thd_noise_target.get())
+            noise_level = float(self.thd_noise_level.get())
+            
+            if dur <= 0 or f0 <= 0 or thd_target < 0 or noise_level < 0:
+                messagebox.showerror("Error", "Els paràmetres han de ser positius")
+                return
+                
+            self.signal = synth_tone_with_thd_and_noise(fs, dur, f0, thd_target, noise_level=noise_level)
+            self.original_signal = self.signal.copy()
+            self.fs = fs
+            self.distortion_applied = False
+            self.show_simulator_result_screen()
+        except ValueError:
+            messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
+
+    def show_sweep_dialog(self):
+        """Diàleg per generar un sweep logarítmic o lineal"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_generator_distortion_dialog)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="Sweep", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        # Freq. mostratge
+        fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
+        fs_label.pack(pady=5)
+        fs_options = ["44100", "48000", "96000", "192000"]
+        self.sweep_fs = ttk.Combobox(main_frame, values=fs_options, state="readonly", width=20)
+        self.sweep_fs.set("48000")
+        self.sweep_fs.pack(pady=5)
+
+        # Durada
+        dur_label = ttk.Label(main_frame, text="Durada (segons):")
+        dur_label.pack(pady=5)
+        self.sweep_dur = ttk.Entry(main_frame, width=20)
+        self.sweep_dur.insert(0, "5.0")
+        self.sweep_dur.pack(pady=5)
+
+        # Freqüència inicial
+        f_start_label = ttk.Label(main_frame, text="Freqüència inicial (Hz):")
+        f_start_label.pack(pady=5)
+        self.sweep_f_start = ttk.Entry(main_frame, width=20)
+        self.sweep_f_start.insert(0, "20")
+        self.sweep_f_start.pack(pady=5)
+
+        # Freqüència final
+        f_end_label = ttk.Label(main_frame, text="Freqüència final (Hz):")
+        f_end_label.pack(pady=5)
+        self.sweep_f_end = ttk.Entry(main_frame, width=20)
+        self.sweep_f_end.insert(0, "20000")
+        self.sweep_f_end.pack(pady=5)
+
+        # Tipus de sweep
+        sweep_type_label = ttk.Label(main_frame, text="Tipus de sweep:")
+        sweep_type_label.pack(pady=5)
+        sweep_options = ["Logarítmic", "Lineal"]
+        self.sweep_type = ttk.Combobox(main_frame, values=sweep_options, state="readonly", width=20)
+        self.sweep_type.set("Logarítmic")
+        self.sweep_type.pack(pady=5)
+
+        generate_btn = ttk.Button(main_frame, text="Generar", 
+                                 command=self.generate_sweep_signal, width=30)
+        generate_btn.pack(pady=20)
+
+    def generate_sweep_signal(self):
+        try:
+            fs = int(self.sweep_fs.get())
+            dur = float(self.sweep_dur.get())
+            f_start = float(self.sweep_f_start.get())
+            f_end = float(self.sweep_f_end.get())
+            sweep_type = self.sweep_type.get()
+            
+            if dur <= 0 or f_start <= 0 or f_end <= 0:
+                messagebox.showerror("Error", "Els paràmetres han de ser positius")
+                return
+            if f_start >= f_end:
+                messagebox.showerror("Error", "La freqüència inicial ha de ser menor a la final")
+                return
+                
+            if sweep_type == "Logarítmic":
+                self.signal = sweep_generator(fs, dur, f_start, f_end)
+            else:
+                self.signal = sweep_generator_linear(fs, dur, f_start, f_end)
+            
+            self.original_signal = self.signal.copy()
+            self.fs = fs
+            self.distortion_applied = False
+            self.show_simulator_result_screen()
+        except ValueError:
+            messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
 
     def show_simulator_screen(self):
         """Mostra opcions de simular distorsió"""
@@ -1100,9 +1335,14 @@ class AudioApp(tk.Tk):
                                font=("Arial", 14, "bold"))
         title_label.pack(pady=20)
 
-        info_label = ttk.Label(main_frame, text="Ara pots reproduir la senyal o desar-la com a WAV.", 
+        info_label = ttk.Label(main_frame, text="Ara pots reproduir la senyal o desar-la com a WAV.",
                                font=("Arial", 12))
         info_label.pack(pady=10)
+
+        if not self.distortion_applied:
+            distort_btn = ttk.Button(main_frame, text="Aplicar distorsió",
+                                     command=self.show_distortion_options_dialog, width=30)
+            distort_btn.pack(pady=10)
 
         play_btn = ttk.Button(main_frame, text="Reproduir senyal", 
                                command=self.play_signal, width=30)
@@ -1119,6 +1359,81 @@ class AudioApp(tk.Tk):
         self.simulator_status_label = ttk.Label(main_frame, text="", font=("Arial", 11))
         self.simulator_status_label.pack(pady=8)
 
+    def show_distortion_options_dialog(self):
+        """Diàleg per seleccionar el tipus de distorsió a aplicar a la senyal generada"""
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        back_btn = ttk.Button(main_frame, text="← Tornar", 
+                              command=self.show_simulator_result_screen)
+        back_btn.pack(anchor=tk.NW, pady=(0, 20))
+
+        title_label = ttk.Label(main_frame, text="Aplicar distorsió", 
+                               font=("Arial", 14, "bold"))
+        title_label.pack(pady=20)
+
+        # Selecció del mètode de distorsió
+        method_label = ttk.Label(main_frame, text="Mètode de distorsió:")
+        method_label.pack(pady=10)
+        
+        methods = ["soft_clip_tanh", "apply_nonlinear_distortion"]
+        self.dist_method_var = tk.StringVar(value=methods[0])
+        
+        for method in methods:
+            rb = ttk.Radiobutton(main_frame, text=method, variable=self.dist_method_var, value=method)
+            rb.pack(anchor=tk.W, padx=40, pady=5)
+
+        # Paràmetre de distorsió
+        param_label = ttk.Label(main_frame, text="Paràmetre de distorsió:", 
+                               font=("Arial", 11))
+        param_label.pack(pady=10)
+
+        self.dist_param_scale = ttk.Scale(main_frame, from_=0.1, to=5.0, orient=tk.HORIZONTAL, length=300)
+        self.dist_param_scale.set(0.5)
+        self.dist_param_scale.pack(pady=5)
+
+        param_value_label = ttk.Label(main_frame, text="0.5")
+        param_value_label.pack(pady=5)
+        
+        def update_param_label(event=None):
+            value = float(self.dist_param_scale.get())
+            param_value_label.config(text=f"{value:.2f}")
+        
+        self.dist_param_scale.bind("<B1-Motion>", update_param_label)
+        self.dist_param_scale.bind("<Button-1>", update_param_label)
+
+        # Botó per aplicar
+        apply_btn = ttk.Button(main_frame, text="Aplicar distorsió", 
+                               command=self.apply_distortion_to_generated_signal,
+                               width=30)
+        apply_btn.pack(pady=20)
+
+    def apply_distortion_to_generated_signal(self):
+        """Aplica la distorsió seleccionada a la senyal generada"""
+        try:
+            method = self.dist_method_var.get()
+            param = float(self.dist_param_scale.get())
+            
+            if self.signal is None or self.fs is None:
+                messagebox.showerror("Error", "No hi ha senyal per distorsionar")
+                return
+            
+            # Aplicar distorsió
+            if method == "soft_clip_tanh":
+                self.signal = soft_clip_tanh(self.signal, dist=param)
+            else:
+                self.signal = apply_nonlinear_distortion(self.signal, alpha=param)
+            
+            # Mostrar pantalla de resultado amb la senyal distorsionada
+            self.distortion_applied = True
+            self.show_simulator_result_screen()
+            
+        except ValueError:
+            messagebox.showerror("Error", "El paràmetre ha de ser numèric")
+    
     def play_signal(self):
         """Reprodueix la senyal simulada utilitzant sounddevice."""
         if self.signal is None or self.fs is None:
@@ -1185,9 +1500,16 @@ class AudioApp(tk.Tk):
         
         # Botó per descarregar informe en PDF (sempre disponible si hi ha senyal)
         if self.signal is not None and self.fs is not None:
-            pdf_btn = ttk.Button(button_frame, text="Descarregar PDF", 
+            pdf_btn = ttk.Button(button_frame, text="Descarregar PDF",
                                  command=self.export_result_pdf)
             pdf_btn.pack(side=tk.LEFT, padx=(6, 0))
+
+        # Botó de detall Farina (només per a anàlisi Farina)
+        if (self.selected_analysis_type == "THD" and self.selected_thd_type == "Farina"
+                and hasattr(self, 'current_farina') and self.current_farina is not None):
+            farina_detail_btn = ttk.Button(button_frame, text="Detall Farina",
+                                           command=lambda: self.current_farina.plot_far_response())
+            farina_detail_btn.pack(side=tk.LEFT, padx=(6, 0))
         
         # Títol - determinar quin tipus d'anàlisi
         if self.selected_analysis_type == "THD":
@@ -1235,6 +1557,7 @@ class AudioApp(tk.Tk):
         self.fig.tight_layout(pad=4.0)
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        plt.close(self.fig)  # desregistra del gestor pyplot per evitar que plt.show() el mostri com a finestra separada
         
         if self.selected_analysis_type == "IMD":
             if self.signal is not None and self.fs is not None:
@@ -1466,41 +1789,81 @@ class AudioApp(tk.Tk):
             return
 
         try:
-            # Crear figura mantenint la mateixa proporció que a l'app (10:6)
-            fig_width = 8.0
-            fig_height = fig_width * 6 / 10  # Mantenir proporció 10:6
-            fig = plt.figure(figsize=(fig_width, fig_height), constrained_layout=False)
-            
-            # Frase inicial amb el resultat
             result_text = self.thd_label.cget("text") if hasattr(self, 'thd_label') else "Resultat no disponible"
-            header = f"DistorLab - Informe d'anàlisi\n\nEl seu resultat és: {result_text}"
-            fig.suptitle(header, fontsize=12, fontweight='bold', y=0.95)
+            is_farina = (self.selected_analysis_type == "THD"
+                         and self.selected_thd_type == "Farina"
+                         and hasattr(self, 'current_farina') and self.current_farina is not None)
 
-            ax = fig.add_subplot(111)
-            # Recalcular FFT per al PDF
-            N = len(self.signal)
-            spectrum = abs(np.fft.fft(self.signal)[:N//2])
-            freqs = np.fft.fftfreq(N, 1/self.fs)[:N//2]
-            positive = freqs > 0
-            freqs = freqs[positive]
-            spectrum = spectrum[positive]
-            if len(freqs) == 0:
-                ax.text(0.5, 0.5, "No hi ha dades FFT vàlides per mostrar.", ha='center')
-            else:
-                eps = 1e-12
-                spectrum_db = 20 * np.log10(spectrum / (np.max(spectrum) + eps) + eps)
-                ax.plot(freqs, spectrum_db, color="#1e88e5", linewidth=1.5)
-                ax.set_xscale('log', nonpositive='clip')
-                ax.set_xlim([20, 20000])
-                ax.set_ylim([np.min(spectrum_db) - 5, np.max(spectrum_db) + 5])
-            ax.set_title("Resposta en freqüència (FFT)", fontsize=11, pad=12)
-            ax.set_xlabel("Freqüència (Hz)", fontsize=10)
-            ax.set_ylabel("Amplitud (dB rel.)", fontsize=10)
-            ax.grid(True, linestyle="--", alpha=0.4)
+            with PdfPages(file_path) as pdf:
+                # --- Pàgina 1: FFT + IR (Farina) o només FFT (resta) ---
+                if is_farina:
+                    fig, (ax_fft, ax_ir) = plt.subplots(1, 2, figsize=(12, 5))
+                else:
+                    fig, ax_fft = plt.subplots(figsize=(10, 5))
 
-            fig.subplots_adjust(top=0.78)
-            fig.savefig(file_path, format='pdf', bbox_inches='tight', pad_inches=0.3)
-            plt.close(fig)
+                header = f"DistorLab – Informe d'anàlisi\nResultat: {result_text}"
+                fig.suptitle(header, fontsize=12, fontweight='bold')
+
+                # FFT
+                N = len(self.signal)
+                spectrum = abs(np.fft.fft(self.signal)[:N//2])
+                freqs = np.fft.fftfreq(N, 1/self.fs)[:N//2]
+                positive = freqs > 0
+                freqs_p = freqs[positive]
+                spectrum_p = spectrum[positive]
+                if len(freqs_p) == 0:
+                    ax_fft.text(0.5, 0.5, "No hi ha dades FFT vàlides.", ha='center')
+                else:
+                    eps = 1e-12
+                    spectrum_db = 20 * np.log10(spectrum_p / (np.max(spectrum_p) + eps) + eps)
+                    ax_fft.plot(freqs_p, spectrum_db, color="#1e88e5", linewidth=1.5)
+                    ax_fft.set_xscale('log', nonpositive='clip')
+                    ax_fft.set_xlim([20, 20000])
+                    ax_fft.set_ylim([np.min(spectrum_db) - 5, np.max(spectrum_db) + 5])
+                ax_fft.set_title("Resposta en freqüència (FFT)", fontsize=11)
+                ax_fft.set_xlabel("Freqüència (Hz)")
+                ax_fft.set_ylabel("Amplitud (dB rel.)")
+                ax_fft.grid(True, linestyle="--", alpha=0.4)
+
+                # IR (només Farina)
+                if is_farina:
+                    ir = self.current_farina.get_IR()
+                    ax_ir.plot(ir, color='#d32f2f', linewidth=0.9)
+                    ax_ir.set_title("Resposta Impulsional (H1)", fontsize=11)
+                    ax_ir.set_xlabel("Mostres")
+                    ax_ir.set_ylabel("Amplitud")
+                    ax_ir.grid(True, linestyle="--", alpha=0.4)
+
+                fig.tight_layout(rect=[0, 0, 1, 0.92])
+                pdf.savefig(fig, bbox_inches='tight')
+                plt.close(fig)
+
+                # --- Pàgina 2 (Farina): subplots harmònics ---
+                if is_farina:
+                    harm_responses = self.current_farina.harm_responses
+                    n_harms = len(harm_responses)
+                    colors = ['#e53935', '#43a047', '#1e88e5', '#8e24aa', '#fb8c00',
+                              '#00acc1', '#6d4c41', '#e91e63', '#00897b', '#fdd835']
+
+                    fig2, axes = plt.subplots(n_harms, 1, figsize=(12, 2.5 * n_harms))
+                    if n_harms == 1:
+                        axes = [axes]
+                    fig2.suptitle("Farina – Respostes harmòniques", fontsize=13, fontweight="bold")
+
+                    for i, resp in enumerate(harm_responses):
+                        ax = axes[i]
+                        label = "IR fonamental (H1)" if i == 0 else f"Harmònic H{i + 1}"
+                        color = colors[i % len(colors)] if i > 0 else '#455a64'
+                        ax.plot(resp, color=color, linewidth=0.9)
+                        ax.set_title(label, fontsize=10)
+                        ax.set_xlabel("Mostres")
+                        ax.set_ylabel("Amplitud")
+                        ax.grid(True, linestyle='--', alpha=0.4)
+
+                    fig2.tight_layout(rect=[0, 0, 1, 0.96], h_pad=3.0)
+                    pdf.savefig(fig2, bbox_inches='tight')
+                    plt.close(fig2)
+
             messagebox.showinfo("Èxit", f"Informe PDF desat a:\n{file_path}")
         except Exception as e:
             messagebox.showerror("Error", f"No s'ha pogut generar el PDF: {e}")
