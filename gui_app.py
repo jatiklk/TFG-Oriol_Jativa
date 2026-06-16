@@ -22,7 +22,7 @@ class AudioApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("DistorLab")
-        self.geometry("900x700")
+        self.geometry("1020x820")
         self.selected_analysis_type = None
         self.selected_thd_type = None
         self.selected_imd_method = "SMPTE"
@@ -30,6 +30,10 @@ class AudioApp(tk.Tk):
         self.fs = None
         self.is_recording_source = False
         self.distortion_applied = False
+
+        style = ttk.Style()
+        style.configure("Big.TButton", font=("Arial", 13, "bold"), padding=10)
+
         self.thd_diagram_image = self.load_diagram_image("thd_diagram.png", max_width=320)
         self.imd_diagram_image = self.load_diagram_image("IMD_diagram.PNG", max_width=480)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -997,6 +1001,48 @@ class AudioApp(tk.Tk):
                               command=self.show_sweep_dialog, width=35)
         sweep_btn.pack(pady=8)
 
+    def add_distortion_controls(self, main_frame):
+        """Afegeix els controls de selecció de distorsió (mètode i paràmetre) a un diàleg de generació"""
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+
+        method_label = ttk.Label(main_frame, text="Mètode de distorsió:")
+        method_label.pack(pady=5)
+
+        methods = ["soft_clip_tanh", "apply_nonlinear_distortion"]
+        self.dist_method_var = tk.StringVar(value=methods[0])
+
+        for method in methods:
+            rb = ttk.Radiobutton(main_frame, text=method, variable=self.dist_method_var, value=method)
+            rb.pack(anchor=tk.W, padx=40, pady=2)
+
+        param_label = ttk.Label(main_frame, text="Paràmetre de distorsió:",
+                               font=("Arial", 11))
+        param_label.pack(pady=5)
+
+        self.dist_param_scale = ttk.Scale(main_frame, from_=0.1, to=5.0, orient=tk.HORIZONTAL, length=300)
+        self.dist_param_scale.set(0.5)
+        self.dist_param_scale.pack(pady=5)
+
+        param_value_label = ttk.Label(main_frame, text="0.5")
+        param_value_label.pack(pady=2)
+
+        def update_param_label(event=None):
+            value = float(self.dist_param_scale.get())
+            param_value_label.config(text=f"{value:.2f}")
+
+        self.dist_param_scale.bind("<B1-Motion>", update_param_label)
+        self.dist_param_scale.bind("<Button-1>", update_param_label)
+
+    def apply_selected_generator_distortion(self, signal):
+        """Aplica el mètode i paràmetre de distorsió seleccionats al diàleg de generació"""
+        method = self.dist_method_var.get()
+        param = float(self.dist_param_scale.get())
+
+        if method == "soft_clip_tanh":
+            return soft_clip_tanh(signal, dist=param)
+        else:
+            return apply_nonlinear_distortion(signal, alpha=param)
+
     def show_sine_dialog(self):
         """Diàleg per generar un sinusoïdal pur"""
         for widget in self.winfo_children():
@@ -1005,11 +1051,11 @@ class AudioApp(tk.Tk):
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(expand=True, fill=tk.BOTH)
 
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
+        back_btn = ttk.Button(main_frame, text="← Tornar",
                               command=self.show_generator_distortion_dialog)
         back_btn.pack(anchor=tk.NW, pady=(0, 20))
 
-        title_label = ttk.Label(main_frame, text="Sinusoïdal pur", 
+        title_label = ttk.Label(main_frame, text="Sinusoïdal pur",
                                font=("Arial", 14, "bold"))
         title_label.pack(pady=20)
 
@@ -1042,8 +1088,12 @@ class AudioApp(tk.Tk):
         self.sine_amp.insert(0, "0.9")
         self.sine_amp.pack(pady=5)
 
-        generate_btn = ttk.Button(main_frame, text="Generar", 
-                                 command=self.generate_sine_signal, width=30)
+        # Opcions de distorsió (s'aplica en generar)
+        self.add_distortion_controls(main_frame)
+
+        generate_btn = ttk.Button(main_frame, text="Següent",
+                                 command=self.generate_sine_signal, width=35,
+                                 style="Big.TButton")
         generate_btn.pack(pady=20)
 
     def generate_sine_signal(self):
@@ -1052,15 +1102,16 @@ class AudioApp(tk.Tk):
             dur = float(self.sine_dur.get())
             f0 = float(self.sine_f0.get())
             amp = float(self.sine_amp.get())
-            
+
             if dur <= 0 or f0 <= 0 or amp <= 0:
                 messagebox.showerror("Error", "Els paràmetres han de ser positius")
                 return
-                
-            self.signal = sine(fs, dur, f0, amp)
-            self.original_signal = self.signal.copy()
+
+            signal = sine(fs, dur, f0, amp)
+            self.original_signal = signal.copy()
             self.fs = fs
-            self.distortion_applied = False
+            self.signal = self.apply_selected_generator_distortion(signal)
+            self.distortion_applied = True
             self.show_simulator_result_screen()
         except ValueError:
             messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
@@ -1110,7 +1161,7 @@ class AudioApp(tk.Tk):
         self.thd_target.insert(0, "0.05")
         self.thd_target.pack(pady=5)
 
-        generate_btn = ttk.Button(main_frame, text="Generar", 
+        generate_btn = ttk.Button(main_frame, text="Generar",
                                  command=self.generate_synth_thd_signal, width=30)
         generate_btn.pack(pady=20)
 
@@ -1120,15 +1171,16 @@ class AudioApp(tk.Tk):
             dur = float(self.thd_dur.get())
             f0 = float(self.thd_f0.get())
             thd_target = float(self.thd_target.get())
-            
+
             if dur <= 0 or f0 <= 0 or thd_target < 0:
                 messagebox.showerror("Error", "Els paràmetres han de ser positius")
                 return
-                
-            self.signal = synth_tone_with_thd(fs, dur, f0, thd_target)
-            self.original_signal = self.signal.copy()
+
+            signal = synth_tone_with_thd(fs, dur, f0, thd_target)
+            self.original_signal = signal.copy()
             self.fs = fs
-            self.distortion_applied = False
+            self.signal = signal
+            self.distortion_applied = True
             self.show_simulator_result_screen()
         except ValueError:
             messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
@@ -1185,7 +1237,7 @@ class AudioApp(tk.Tk):
         self.thd_noise_level.insert(0, "0.01")
         self.thd_noise_level.pack(pady=5)
 
-        generate_btn = ttk.Button(main_frame, text="Generar", 
+        generate_btn = ttk.Button(main_frame, text="Generar",
                                  command=self.generate_synth_thd_noise_signal, width=30)
         generate_btn.pack(pady=20)
 
@@ -1196,15 +1248,16 @@ class AudioApp(tk.Tk):
             f0 = float(self.thd_noise_f0.get())
             thd_target = float(self.thd_noise_target.get())
             noise_level = float(self.thd_noise_level.get())
-            
+
             if dur <= 0 or f0 <= 0 or thd_target < 0 or noise_level < 0:
                 messagebox.showerror("Error", "Els paràmetres han de ser positius")
                 return
-                
-            self.signal = synth_tone_with_thd_and_noise(fs, dur, f0, thd_target, noise_level=noise_level)
-            self.original_signal = self.signal.copy()
+
+            signal = synth_tone_with_thd_and_noise(fs, dur, f0, thd_target, noise_level=noise_level)
+            self.original_signal = signal.copy()
             self.fs = fs
-            self.distortion_applied = False
+            self.signal = signal
+            self.distortion_applied = True
             self.show_simulator_result_screen()
         except ValueError:
             messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
@@ -1262,8 +1315,12 @@ class AudioApp(tk.Tk):
         self.sweep_type.set("Logarítmic")
         self.sweep_type.pack(pady=5)
 
-        generate_btn = ttk.Button(main_frame, text="Generar", 
-                                 command=self.generate_sweep_signal, width=30)
+        # Opcions de distorsió (s'aplica en generar)
+        self.add_distortion_controls(main_frame)
+
+        generate_btn = ttk.Button(main_frame, text="Següent",
+                                 command=self.generate_sweep_signal, width=35,
+                                 style="Big.TButton")
         generate_btn.pack(pady=20)
 
     def generate_sweep_signal(self):
@@ -1273,22 +1330,23 @@ class AudioApp(tk.Tk):
             f_start = float(self.sweep_f_start.get())
             f_end = float(self.sweep_f_end.get())
             sweep_type = self.sweep_type.get()
-            
+
             if dur <= 0 or f_start <= 0 or f_end <= 0:
                 messagebox.showerror("Error", "Els paràmetres han de ser positius")
                 return
             if f_start >= f_end:
                 messagebox.showerror("Error", "La freqüència inicial ha de ser menor a la final")
                 return
-                
+
             if sweep_type == "Logarítmic":
-                self.signal = sweep_generator(fs, dur, f_start, f_end)
+                signal = sweep_generator(fs, dur, f_start, f_end)
             else:
-                self.signal = sweep_generator_linear(fs, dur, f_start, f_end)
-            
-            self.original_signal = self.signal.copy()
+                signal = sweep_generator_linear(fs, dur, f_start, f_end)
+
+            self.original_signal = signal.copy()
             self.fs = fs
-            self.distortion_applied = False
+            self.signal = self.apply_selected_generator_distortion(signal)
+            self.distortion_applied = True
             self.show_simulator_result_screen()
         except ValueError:
             messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
@@ -1339,101 +1397,21 @@ class AudioApp(tk.Tk):
                                font=("Arial", 12))
         info_label.pack(pady=10)
 
-        if not self.distortion_applied:
-            distort_btn = ttk.Button(main_frame, text="Aplicar distorsió",
-                                     command=self.show_distortion_options_dialog, width=30)
-            distort_btn.pack(pady=10)
-
-        play_btn = ttk.Button(main_frame, text="Reproduir senyal", 
+        play_btn = ttk.Button(main_frame, text="Reproduir senyal",
                                command=self.play_signal, width=30)
         play_btn.pack(pady=10)
 
-        save_btn = ttk.Button(main_frame, text="Descarregar WAV", 
+        save_btn = ttk.Button(main_frame, text="Descarregar WAV",
                                command=self.save_signal, width=30)
         save_btn.pack(pady=10)
 
-        home_btn = ttk.Button(main_frame, text="Anar a l'inici", 
+        home_btn = ttk.Button(main_frame, text="Anar a l'inici",
                                command=self.show_selection_screen, width=30)
         home_btn.pack(pady=10)
 
         self.simulator_status_label = ttk.Label(main_frame, text="", font=("Arial", 11))
         self.simulator_status_label.pack(pady=8)
 
-    def show_distortion_options_dialog(self):
-        """Diàleg per seleccionar el tipus de distorsió a aplicar a la senyal generada"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_simulator_result_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Aplicar distorsió", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
-
-        # Selecció del mètode de distorsió
-        method_label = ttk.Label(main_frame, text="Mètode de distorsió:")
-        method_label.pack(pady=10)
-        
-        methods = ["soft_clip_tanh", "apply_nonlinear_distortion"]
-        self.dist_method_var = tk.StringVar(value=methods[0])
-        
-        for method in methods:
-            rb = ttk.Radiobutton(main_frame, text=method, variable=self.dist_method_var, value=method)
-            rb.pack(anchor=tk.W, padx=40, pady=5)
-
-        # Paràmetre de distorsió
-        param_label = ttk.Label(main_frame, text="Paràmetre de distorsió:", 
-                               font=("Arial", 11))
-        param_label.pack(pady=10)
-
-        self.dist_param_scale = ttk.Scale(main_frame, from_=0.1, to=5.0, orient=tk.HORIZONTAL, length=300)
-        self.dist_param_scale.set(0.5)
-        self.dist_param_scale.pack(pady=5)
-
-        param_value_label = ttk.Label(main_frame, text="0.5")
-        param_value_label.pack(pady=5)
-        
-        def update_param_label(event=None):
-            value = float(self.dist_param_scale.get())
-            param_value_label.config(text=f"{value:.2f}")
-        
-        self.dist_param_scale.bind("<B1-Motion>", update_param_label)
-        self.dist_param_scale.bind("<Button-1>", update_param_label)
-
-        # Botó per aplicar
-        apply_btn = ttk.Button(main_frame, text="Aplicar distorsió", 
-                               command=self.apply_distortion_to_generated_signal,
-                               width=30)
-        apply_btn.pack(pady=20)
-
-    def apply_distortion_to_generated_signal(self):
-        """Aplica la distorsió seleccionada a la senyal generada"""
-        try:
-            method = self.dist_method_var.get()
-            param = float(self.dist_param_scale.get())
-            
-            if self.signal is None or self.fs is None:
-                messagebox.showerror("Error", "No hi ha senyal per distorsionar")
-                return
-            
-            # Aplicar distorsió
-            if method == "soft_clip_tanh":
-                self.signal = soft_clip_tanh(self.signal, dist=param)
-            else:
-                self.signal = apply_nonlinear_distortion(self.signal, alpha=param)
-            
-            # Mostrar pantalla de resultado amb la senyal distorsionada
-            self.distortion_applied = True
-            self.show_simulator_result_screen()
-            
-        except ValueError:
-            messagebox.showerror("Error", "El paràmetre ha de ser numèric")
-    
     def play_signal(self):
         """Reprodueix la senyal simulada utilitzant sounddevice."""
         if self.signal is None or self.fs is None:
