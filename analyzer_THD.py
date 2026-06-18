@@ -19,9 +19,9 @@ def plot_fft(signal, fs):
 
 def extract_fundamental_note(signal, fs):
     """
-    Extreu la freqüència fonamental.
+    Extreu la freqüència fonamental amb interpolació parabòlica
+    per millorar la precisió i la robustesa al soroll.
     """
-    # FFT
     N = len(signal)
     spectrum = np.fft.fft(signal)
     freqs = np.fft.fftfreq(N, 1/fs)
@@ -30,9 +30,20 @@ def extract_fundamental_note(signal, fs):
 
     # troba el pic màxim (ignora DC)
     idx_peak = np.argmax(magnitude[1:]) + 1
-    fundamental_freq = freqs[idx_peak]
 
-    return fundamental_freq, idx_peak
+    # interpolació parabòlica amb els 3 punts veïns (evita sortir dels límits)
+    if 1 <= idx_peak < len(magnitude) - 1:
+        alpha = magnitude[idx_peak - 1]
+        beta  = magnitude[idx_peak]
+        gamma = magnitude[idx_peak + 1]
+        # desplaçament fraccional respecte el bin del pic
+        p = 0.5 * (alpha - gamma) / (alpha - 2*beta + gamma + 1e-15)
+        bin_size = freqs[1] - freqs[0]
+        fundamental_freq = freqs[idx_peak] + p * bin_size
+    else:
+        fundamental_freq = freqs[idx_peak]
+
+    return fundamental_freq, magnitude[idx_peak]
 
 def extract_impulse_response(signal, fs):
     """

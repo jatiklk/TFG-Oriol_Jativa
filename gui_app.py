@@ -19,10 +19,25 @@ from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_t
 from custom_farina import Farina
 
 class AudioApp(tk.Tk):
+    # Paleta de colors de l'aplicació
+    BG = "#f4f6f8"
+    ACCENT = "#1565c0"
+    TEXT_MUTED = "#445"
+
     def __init__(self):
         super().__init__()
         self.title("DistorLab")
-        self.geometry("1020x820")
+
+        # Mida de la finestra centrada a la pantalla
+        win_w, win_h = 1020, 820
+        self.update_idletasks()
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        x = max(0, (screen_w - win_w) // 2)
+        y = max(0, (screen_h - win_h) // 2)
+        self.geometry(f"{win_w}x{win_h}+{x}+{y}")
+        self.minsize(820, 640)
+
         self.selected_analysis_type = None
         self.selected_thd_type = None
         self.selected_imd_method = "SMPTE"
@@ -31,49 +46,92 @@ class AudioApp(tk.Tk):
         self.is_recording_source = False
         self.distortion_applied = False
 
-        style = ttk.Style()
-        style.configure("Big.TButton", font=("Arial", 13, "bold"), padding=10)
+        self.configure(bg=self.BG)
+        self._setup_styles()
 
         self.thd_diagram_image = self.load_diagram_image("thd_diagram.png", max_width=320)
         self.imd_diagram_image = self.load_diagram_image("IMD_diagram.PNG", max_width=480)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        
+
         # Mostrar la pantalla inicial de selecció
         self.show_selection_screen()
+
+    def _setup_styles(self):
+        """Defineix l'aparença general (colors, fonts) de tots els widgets ttk."""
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        base_font = ("Segoe UI", 11)
+
+        style.configure(".", background=self.BG, font=base_font)
+        style.configure("TFrame", background=self.BG)
+        style.configure("TLabel", background=self.BG, font=base_font)
+        style.configure("Title.TLabel", background=self.BG,
+                        font=("Segoe UI", 17, "bold"), foreground="#0d2b52")
+        style.configure("Muted.TLabel", background=self.BG,
+                        font=("Segoe UI", 10), foreground=self.TEXT_MUTED)
+
+        style.configure("TButton", font=("Segoe UI", 10), padding=8)
+        style.configure("Big.TButton", font=("Segoe UI", 13, "bold"), padding=10)
+        style.configure("Back.TButton", font=("Segoe UI", 9), padding=5)
+
+        style.configure("TEntry", padding=4)
+        style.configure("TCombobox", padding=4)
+        style.configure("TRadiobutton", background=self.BG, font=base_font)
+        style.configure("TSeparator", background=self.BG)
     
     def load_thd_diagram_image(self, max_width=640):
         """Carrega la imatge THD amb l'amplada màxima indicada."""
         return self.load_diagram_image("thd_diagram.png", max_width)
     
-    def show_selection_screen(self):
-        """Mostra la pantalla inicial per seleccionar entre THD i IMD"""
-        # Esborrar els widgets anteriors
+    def build_screen(self, title=None, back_command=None, title_style="Title.TLabel"):
+        """Neteja la finestra i prepara una pantalla nova.
+
+        Crea (opcionalment) un botó "Tornar" ancorat a dalt a l'esquerra, i retorna
+        un frame de contingut centrat horitzontalment i verticalment dins la
+        finestra, on cal afegir-hi la resta de widgets de la pantalla.
+        """
         for widget in self.winfo_children():
             widget.destroy()
-        
-        # Frame principal
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-        
-        # Títol
-        title_label = ttk.Label(main_frame, text="Selecciona el tipus d'anàlisi", 
-                                font=("Arial", 16, "bold"))
-        title_label.pack(pady=20)
-        
+
+        outer = ttk.Frame(self, padding="20")
+        outer.pack(expand=True, fill=tk.BOTH)
+
+        if back_command is not None:
+            back_btn = ttk.Button(outer, text="← Tornar", command=back_command,
+                                  style="Back.TButton")
+            back_btn.pack(anchor=tk.NW, pady=(0, 10))
+
+        content = ttk.Frame(outer)
+        content.pack(expand=True)
+
+        if title:
+            title_label = ttk.Label(content, text=title, style=title_style)
+            title_label.pack(pady=20)
+
+        return content
+
+    def show_selection_screen(self):
+        """Mostra la pantalla inicial per seleccionar entre THD i IMD"""
+        main_frame = self.build_screen("Selecciona el tipus d'anàlisi")
+
         # Botó THD
-        thd_btn = ttk.Button(main_frame, text="THD", 
+        thd_btn = ttk.Button(main_frame, text="THD",
                             command=lambda: self.select_analysis_type("THD"),
                             width=20)
         thd_btn.pack(pady=10)
-        
+
         # Botó IMD
-        imd_btn = ttk.Button(main_frame, text="IMD", 
+        imd_btn = ttk.Button(main_frame, text="IMD",
                             command=lambda: self.select_analysis_type("IMD"),
                             width=20)
         imd_btn.pack(pady=10)
-        
+
         # Botó Simulator
-        simulator_btn = ttk.Button(main_frame, text="Simulator", 
+        simulator_btn = ttk.Button(main_frame, text="Simulator",
                                    command=self.show_simulator_screen,
                                    width=20)
         simulator_btn.pack(pady=10)
@@ -112,23 +170,7 @@ class AudioApp(tk.Tk):
 
     def show_thd_selection_screen(self):
         """Mostra la pantalla de selecció del tipus de THD"""
-        # Esborrar els widgets anteriors
-        for widget in self.winfo_children():
-            widget.destroy()
-        
-        # Frame principal
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-        
-        # Botó per tornar enrere
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                             command=self.show_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-        
-        # Títol
-        title_label = ttk.Label(main_frame, text="Selecciona el tipus de THD", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("Selecciona el tipus de THD", back_command=self.show_selection_screen)
 
         # Mostrar diagrama THD una mica més gran (un pas abans de gravar/importar)
         thd_small = self.thd_diagram_image
@@ -182,57 +224,27 @@ class AudioApp(tk.Tk):
     
     def show_signal_input_screen(self):
         """Mostra la pantalla per seleccionar generar o importar una senyal"""
-        # Esborrar els widgets anteriors
-        for widget in self.winfo_children():
-            widget.destroy()
-        
-        # Frame principal
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-        
-        # Botó per tornar enrere
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                             command=self.show_thd_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-        
-        # Títol
-        title_label = ttk.Label(main_frame, text="Selecciona la font de la senyal", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
-        
+        main_frame = self.build_screen("Selecciona la font de la senyal", back_command=self.show_thd_selection_screen)
+
         # Botó gravar àudio
-        record_btn = ttk.Button(main_frame, text="Enregistra àudio", 
+        record_btn = ttk.Button(main_frame, text="Enregistra àudio",
                                  command=self.show_record_audio_screen,
                                  width=25)
         record_btn.pack(pady=10)
-        
+
         # Botó importar WAV
-        import_btn = ttk.Button(main_frame, text="Importar WAV", 
+        import_btn = ttk.Button(main_frame, text="Importar WAV",
                                command=self.import_wav_signal,
                                width=25)
         import_btn.pack(pady=10)
-        
-        
-    
+
     def show_record_audio_screen(self, from_farina=False):
         """Mostra una pantalla per triar l'entrada del sistema i gravar àudio"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
         self.recording_active = False
         self.record_start_time = None
 
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
         back_command = self.show_farina_screen if from_farina else self.show_signal_input_screen
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                             command=back_command)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Enregistra àudio", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=10)
+        main_frame = self.build_screen("Enregistra àudio", back_command=back_command)
 
         device_frame = ttk.Frame(main_frame)
         device_frame.pack(fill=tk.X, pady=5)
@@ -361,54 +373,26 @@ class AudioApp(tk.Tk):
 
     def show_sweep_input_screen(self):
         """Mostra la pantalla per seleccionar generar o importar una sweep"""
-        # Esborrar els widgets anteriors
-        for widget in self.winfo_children():
-            widget.destroy()
-        
-        # Frame principal
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-        
-        # Botó per tornar enrere
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                             command=self.show_thd_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-        
-        # Títol
-        title_label = ttk.Label(main_frame, text="Selecciona la font del sweep", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
-        
+        main_frame = self.build_screen("Selecciona la font del sweep", back_command=self.show_thd_selection_screen)
+
         # Botó generar sweep
-        generate_btn = ttk.Button(main_frame, text="Generar sweep", 
+        generate_btn = ttk.Button(main_frame, text="Generar sweep",
                                  command=self.show_sweep_generation_dialog,
                                  width=25)
         generate_btn.pack(pady=10)
-        
+
         # Botó importar WAV
-        import_btn = ttk.Button(main_frame, text="Importar WAV", 
+        import_btn = ttk.Button(main_frame, text="Importar WAV",
                                command=self.import_wav_signal,
                                width=25)
         import_btn.pack(pady=10)
 
     def show_farina_screen(self):
         """Mostra la pantalla per generar/descarregar la sweep usada pel mètode Farina i processar-la"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                             command=self.show_thd_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Farina - Sweep Logarítmic", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=10)
+        main_frame = self.build_screen("Farina - Sweep Logarítmic", back_command=self.show_thd_selection_screen)
 
         info_label = ttk.Label(main_frame, text="S'utilitzen paràmetres fixos per Farina: durada=5s, amplitud=0.9, fs=48000",
-                               font=("Arial", 10), foreground="#333333", wraplength=760)
+                               style="Muted.TLabel", wraplength=760)
         info_label.pack(pady=(0, 15))
 
         btn_frame = ttk.Frame(main_frame)
@@ -575,19 +559,7 @@ class AudioApp(tk.Tk):
     
     def show_distortion_selection_screen(self):
         """Mostra opcions de distorsió per aplicar al WAV carregat"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_simulator_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Selecciona el tipus de distorsió", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("Selecciona el tipus de distorsió", back_command=self.show_simulator_screen)
 
         # Selecció del mètode de distorsió
         method_label = ttk.Label(main_frame, text="Mètode de distorsió:")
@@ -824,24 +796,12 @@ class AudioApp(tk.Tk):
     
     def show_imd_screen(self):
         """Mostra la pantalla per seleccionar generar sweep o importar una senyal"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                             command=self.show_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Anàlisi IMD: genera senyal o importa WAV", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("Anàlisi IMD: genera senyal o importa WAV", back_command=self.show_selection_screen)
 
         method_frame = ttk.Frame(main_frame)
-        method_frame.pack(pady=(0, 20), fill=tk.X)
+        method_frame.pack(pady=(0, 20))
 
-        method_label = ttk.Label(method_frame, text="Mètode IMD:", font=("Arial", 12))
+        method_label = ttk.Label(method_frame, text="Mètode IMD:", font=("Segoe UI", 12))
         method_label.pack(side=tk.LEFT, padx=(0, 10))
 
         imd_methods = ["SMPTE", "CCIF"]
@@ -854,14 +814,14 @@ class AudioApp(tk.Tk):
         imd_small = self.imd_diagram_image if self.imd_diagram_image is not None else None
         if imd_small is not None:
             image_small_frame = ttk.Frame(main_frame)
-            image_small_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 10))
+            image_small_frame.pack(pady=(10, 10))
             img_label_small = ttk.Label(image_small_frame, image=imd_small)
             img_label_small.image = imd_small
             img_label_small.pack()
 
-        info_label = ttk.Label(main_frame, 
+        info_label = ttk.Label(main_frame,
                                text="Prem un botó per generar la senyal amb el mètode triat, o importa un WAV.",
-                               font=("Arial", 11), foreground="#333333", wraplength=760)
+                               style="Muted.TLabel", wraplength=600)
         info_label.pack(pady=(0, 20))
 
         ccif_btn = ttk.Button(main_frame, text="Generar CCIF", 
@@ -916,37 +876,25 @@ class AudioApp(tk.Tk):
 
     def show_test_signal_ready_screen(self):
         """Pantalla que mostra només opcions per reproduir o desar la senyal de prova (sense analitzar)."""
-        for widget in self.winfo_children():
-            widget.destroy()
+        main_frame = self.build_screen("Senyal de prova llesta", back_command=self.show_signal_input_screen)
 
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_signal_input_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Senyal de prova llesta", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
-
-        info_label = ttk.Label(main_frame, text="Aquesta senyal és neta (sense distorsió). Pots reproduir-la o descarregar-la.", 
-                               font=("Arial", 12), wraplength=760)
+        info_label = ttk.Label(main_frame, text="Aquesta senyal és neta (sense distorsió). Pots reproduir-la o descarregar-la.",
+                               wraplength=600)
         info_label.pack(pady=10)
 
-        play_btn = ttk.Button(main_frame, text="Reproduir senyal", 
+        play_btn = ttk.Button(main_frame, text="Reproduir senyal",
                                command=self.play_signal, width=30)
         play_btn.pack(pady=10)
 
-        save_btn = ttk.Button(main_frame, text="Descarregar WAV", 
+        save_btn = ttk.Button(main_frame, text="Descarregar WAV",
                                command=self.save_signal, width=30)
         save_btn.pack(pady=10)
 
-        home_btn = ttk.Button(main_frame, text="Anar a l'inici", 
+        home_btn = ttk.Button(main_frame, text="Anar a l'inici",
                                command=self.show_selection_screen, width=30)
         home_btn.pack(pady=10)
 
-        self.simulator_status_label = ttk.Label(main_frame, text="", font=("Arial", 11))
+        self.simulator_status_label = ttk.Label(main_frame, text="", style="Muted.TLabel")
         self.simulator_status_label.pack(pady=8)
 
     def apply_selected_distortion(self):
@@ -967,22 +915,10 @@ class AudioApp(tk.Tk):
 
     def show_generator_distortion_dialog(self):
         """Mostra un menú amb botons per seleccionar el tipus de senyal a generar"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_simulator_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Selecciona el tipus de senyal", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("Selecciona el tipus de senyal", back_command=self.show_simulator_screen)
 
         # Botó Sinusoïdal
-        sine_btn = ttk.Button(main_frame, text="Sinusoïdal pur", 
+        sine_btn = ttk.Button(main_frame, text="Sinusoïdal pur",
                              command=self.show_sine_dialog, width=35)
         sine_btn.pack(pady=8)
 
@@ -1045,19 +981,7 @@ class AudioApp(tk.Tk):
 
     def show_sine_dialog(self):
         """Diàleg per generar un sinusoïdal pur"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar",
-                              command=self.show_generator_distortion_dialog)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Sinusoïdal pur",
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("Sinusoïdal pur", back_command=self.show_generator_distortion_dialog)
 
         # Freq. mostratge
         fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
@@ -1118,19 +1042,7 @@ class AudioApp(tk.Tk):
 
     def show_synth_thd_dialog(self):
         """Diàleg per generar un to amb THD"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_generator_distortion_dialog)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="To amb THD", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("To amb THD", back_command=self.show_generator_distortion_dialog)
 
         # Freq. mostratge
         fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
@@ -1187,19 +1099,7 @@ class AudioApp(tk.Tk):
 
     def show_synth_thd_noise_dialog(self):
         """Diàleg per generar un to amb THD i soroll"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_generator_distortion_dialog)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="To amb THD + Soroll", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("To amb THD + Soroll", back_command=self.show_generator_distortion_dialog)
 
         # Freq. mostratge
         fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
@@ -1264,19 +1164,7 @@ class AudioApp(tk.Tk):
 
     def show_sweep_dialog(self):
         """Diàleg per generar un sweep logarítmic o lineal"""
-        for widget in self.winfo_children():
-            widget.destroy()
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_generator_distortion_dialog)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Sweep", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
+        main_frame = self.build_screen("Sweep", back_command=self.show_generator_distortion_dialog)
 
         # Freq. mostratge
         fs_label = ttk.Label(main_frame, text="Freq. mostratge (Hz):")
@@ -1353,48 +1241,23 @@ class AudioApp(tk.Tk):
 
     def show_simulator_screen(self):
         """Mostra opcions de simular distorsió"""
-        for widget in self.winfo_children():
-            widget.destroy()
+        main_frame = self.build_screen("Simulator de distorsió", back_command=self.show_selection_screen)
 
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_selection_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Simulator de distorsió", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
-
-        import_btn = ttk.Button(main_frame, text="Pujar WAV i aplicar distorsió", 
+        import_btn = ttk.Button(main_frame, text="Pujar WAV i aplicar distorsió",
                                 command=self.import_wav_for_simulation,
                                 width=30)
         import_btn.pack(pady=10)
 
-        generator_btn = ttk.Button(main_frame, text="Generar senyal distorsionada", 
+        generator_btn = ttk.Button(main_frame, text="Generar senyal distorsionada",
                                    command=self.show_generator_distortion_dialog,
                                    width=30)
         generator_btn.pack(pady=10)
 
     def show_simulator_result_screen(self):
         """Mostra opcions per reproduir o desar la senyal simulada"""
-        for widget in self.winfo_children():
-            widget.destroy()
+        main_frame = self.build_screen("Senyal simulada llesta", back_command=self.show_simulator_screen)
 
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-
-        back_btn = ttk.Button(main_frame, text="← Tornar", 
-                              command=self.show_simulator_screen)
-        back_btn.pack(anchor=tk.NW, pady=(0, 20))
-
-        title_label = ttk.Label(main_frame, text="Senyal simulada llesta", 
-                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=20)
-
-        info_label = ttk.Label(main_frame, text="Ara pots reproduir la senyal o desar-la com a WAV.",
-                               font=("Arial", 12))
+        info_label = ttk.Label(main_frame, text="Ara pots reproduir la senyal o desar-la com a WAV.")
         info_label.pack(pady=10)
 
         play_btn = ttk.Button(main_frame, text="Reproduir senyal",
@@ -1409,7 +1272,7 @@ class AudioApp(tk.Tk):
                                command=self.show_selection_screen, width=30)
         home_btn.pack(pady=10)
 
-        self.simulator_status_label = ttk.Label(main_frame, text="", font=("Arial", 11))
+        self.simulator_status_label = ttk.Label(main_frame, text="", style="Muted.TLabel")
         self.simulator_status_label.pack(pady=8)
 
     def play_signal(self):
@@ -1466,8 +1329,8 @@ class AudioApp(tk.Tk):
         button_frame.pack(anchor=tk.NW, fill=tk.X, pady=(0, 10))
         
         # Botó per tornar enrere
-        back_btn = ttk.Button(button_frame, text="← Tornar", 
-                             command=self.show_selection_screen)
+        back_btn = ttk.Button(button_frame, text="← Tornar",
+                             command=self.show_selection_screen, style="Back.TButton")
         back_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         # Botó per descarregar WAV si és gravació
@@ -1500,38 +1363,57 @@ class AudioApp(tk.Tk):
         top_frame.pack(fill=tk.X, pady=(0, 10))
         
         # Títol a l'esquerra
-        title_label = ttk.Label(top_frame, 
-                               text=analysis_title, 
-                               font=("Arial", 14, "bold"))
+        title_label = ttk.Label(top_frame,
+                               text=analysis_title,
+                               style="Title.TLabel")
         title_label.pack(side=tk.LEFT)
-        
+
         # Etiqueta de resultat a la dreta, més gran
-        self.thd_label = ttk.Label(top_frame, text="Resultat: -", 
-                                  font=("Arial", 18, "bold"), foreground="#1a237e")
+        self.thd_label = ttk.Label(top_frame, text="Resultat: -",
+                                  font=("Segoe UI", 18, "bold"), foreground=self.ACCENT)
         self.thd_label.pack(side=tk.RIGHT)
+
+        _intro_descs_gui = {
+            ("THD", "THD_F"):     "Mesura la distorsió harmònica total (THD-F) com a percentatge de l'amplitud del fonamental. La taula inferior mostra la contribució individual de cada harmònic.",
+            ("THD", "THD_RMS"):   "Mesura la distorsió harmònica total (THD-RMS) com a percentatge de la potència RMS del senyal total. La taula inferior mostra la contribució de cada harmònic.",
+            ("THD", "THD_N"):     "Mesura la distorsió harmònica total més soroll (THD+N) com a percentatge del fonamental. Inclou tots els harmònics i el soroll de fons del sistema.",
+            ("THD", "THD_SWEEP"): "Mostra la variació del THD al llarg de l'espectre de freqüències. Cada punt representa el THD calculat sobre un segment del sweep logarítmic.",
+            ("THD", "Farina"):    "Anàlisi per deconvolució logarítmica (mètode Farina). La resposta impulsional reflecteix la dinàmica lineal del sistema i permet separar les components harmòniques.",
+            ("IMD", "SMPTE"):     "Distorsió per intermodulació SMPTE: to de baixa freqüència (60 Hz) i alta amplitud combinat amb un to d'alta freqüència (7 kHz) i baixa amplitud.",
+            ("IMD", "CCIF"):      "Distorsió per intermodulació CCIF/ITU-R: dos tons d'alta freqüència propers (7 kHz i 7,6 kHz) i mateixa amplitud. S'avaluen les components diferencial i d'intermodulació.",
+        }
+        _gui_key = (self.selected_analysis_type,
+                    self.selected_thd_type if self.selected_analysis_type == "THD" else self.selected_imd_method)
+        _gui_intro = _intro_descs_gui.get(_gui_key, "")
 
         if self.selected_analysis_type == "IMD":
             selected_method_text = f"Mètode IMD seleccionat: {self.selected_imd_method}"
-            selected_method_label = ttk.Label(main_frame, text=selected_method_text, 
-                                              font=("Arial", 12), foreground="#333333")
-            selected_method_label.pack(fill=tk.X, pady=(0, 10))
+            selected_method_label = ttk.Label(main_frame, text=selected_method_text,
+                                              font=("Segoe UI", 12), foreground="#333333")
+            selected_method_label.pack(fill=tk.X, pady=(0, 6))
 
-            hint_text = (
-                "CCIF: senyal amb dos tons d'alta freqüència i mateixa amplitud. "
-                "SMPTE: dos tons, un de baixa freqüència / alta amplitud i un d'alta freqüència / baixa amplitud."
-            )
-            hint_label = ttk.Label(main_frame, text=hint_text, font=("Arial", 10), foreground="#333333", wraplength=760)
-            hint_label.pack(fill=tk.X, pady=(0, 10))
+        if _gui_intro:
+            intro_label = ttk.Label(main_frame, text=_gui_intro, style="Muted.TLabel", wraplength=900)
+            intro_label.pack(fill=tk.X, pady=(0, 8))
 
         # Gràfics: un o dos eixos segons el tipus d'anàlisi
         if self.selected_analysis_type == "THD" and self.selected_thd_type == "Farina":
             self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            self.ax_table = None
             self.ax2.set_title("Impulse Response", fontsize=12, fontweight="bold")
             self.ax2.set_xlabel("Mostres")
             self.ax2.set_ylabel("Amplitud")
+        elif self.selected_analysis_type == "THD" and self.selected_thd_type in ("THD_F", "THD_RMS"):
+            self.fig = plt.figure(figsize=(10, 7))
+            gs = self.fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.5)
+            self.ax1 = self.fig.add_subplot(gs[0])
+            self.ax_table = self.fig.add_subplot(gs[1])
+            self.ax_table.axis("off")
+            self.ax2 = None
         else:
             self.fig, self.ax1 = plt.subplots(figsize=(10, 6))
             self.ax2 = None
+            self.ax_table = None
         self.fig.tight_layout(pad=4.0)
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -1715,18 +1597,32 @@ class AudioApp(tk.Tk):
                 for h in harmonics
             ]
 
-        table = self.ax1.table(
-            cellText=table_data,
-            colLabels=col_labels,
-            loc="upper right",
-            cellLoc="center",
-            colLoc="center",
-            bbox=[0.70, 0.55, 0.27, 0.30],
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(7)
-        table.scale(0.95, 0.95)
-        self.ax1.figure.subplots_adjust(right=0.80)
+        ax_t = getattr(self, "ax_table", None)
+        if ax_t is not None:
+            ax_t.axis("off")
+            table = ax_t.table(
+                cellText=table_data,
+                colLabels=col_labels,
+                loc="center",
+                cellLoc="center",
+                colLoc="center",
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+            table.scale(1.2, 1.5)
+        else:
+            table = self.ax1.table(
+                cellText=table_data,
+                colLabels=col_labels,
+                loc="upper right",
+                cellLoc="center",
+                colLoc="center",
+                bbox=[0.70, 0.55, 0.27, 0.30],
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(7)
+            table.scale(0.95, 0.95)
+            self.ax1.figure.subplots_adjust(right=0.80)
 
     def download_recorded_wav(self):
         """Descarrega el WAV de la gravació realitzada"""
@@ -1771,36 +1667,91 @@ class AudioApp(tk.Tk):
             is_farina = (self.selected_analysis_type == "THD"
                          and self.selected_thd_type == "Farina"
                          and hasattr(self, 'current_farina') and self.current_farina is not None)
+            is_thd_harmonic = (self.selected_analysis_type == "THD"
+                               and self.selected_thd_type in ("THD_F", "THD_RMS"))
+
+            harmonics_data = None
+            if is_thd_harmonic:
+                try:
+                    _, harmonics_data = compute_THD_harmonic(self.signal, self.fs, len(self.signal), H=6)
+                except Exception:
+                    harmonics_data = None
+
+            _intro_descs = {
+                ("THD", "THD_F"):     "Mesura la distorsió harmònica total (THD-F) com a percentatge de l'amplitud del fonamental. La taula mostra la contribució individual de cada harmònic.",
+                ("THD", "THD_RMS"):   "Mesura la distorsió harmònica total (THD-RMS) com a percentatge de la potència RMS del senyal total. La taula mostra la contribució de cada harmònic.",
+                ("THD", "THD_N"):     "Mesura la distorsió harmònica total més soroll (THD+N) com a percentatge del fonamental. Inclou tots els harmònics i el soroll de fons del sistema.",
+                ("THD", "THD_SWEEP"): "Mostra la variació del THD al llarg de l'espectre de freqüències. Cada punt representa el THD calculat sobre un segment del sweep logarítmic.",
+                ("THD", "Farina"):    "Anàlisi per deconvolució logarítmica (mètode Farina). La resposta impulsional reflecteix la dinàmica lineal del sistema i permet separar les components harmòniques.",
+                ("IMD", "SMPTE"):     "Distorsió per intermodulació SMPTE: to de baixa freqüència (60 Hz) i alta amplitud combinat amb un to d'alta freqüència (7 kHz) i baixa amplitud.",
+                ("IMD", "CCIF"):      "Distorsió per intermodulació CCIF/ITU-R: dos tons d'alta freqüència propers (7 kHz i 7,6 kHz) i mateixa amplitud. S'avaluen les components diferencial i d'intermodulació.",
+            }
+            _key = (self.selected_analysis_type,
+                    self.selected_thd_type if self.selected_analysis_type == "THD" else self.selected_imd_method)
+            intro_desc = _intro_descs.get(_key, "")
 
             with PdfPages(file_path) as pdf:
-                # --- Pàgina 1: FFT + IR (Farina) o només FFT (resta) ---
+                # --- Pàgina 1: FFT + taula harmònics (THD_F/THD_RMS), FFT + IR (Farina) o FFT ---
                 if is_farina:
-                    fig, (ax_fft, ax_ir) = plt.subplots(1, 2, figsize=(12, 5))
+                    fig, (ax_fft, ax_ir) = plt.subplots(1, 2, figsize=(12, 7))
+                    ax_table_pdf = None
+                elif is_thd_harmonic and harmonics_data:
+                    fig = plt.figure(figsize=(10, 9))
+                    gs = fig.add_gridspec(2, 1, height_ratios=[3, 1.2], hspace=0.45)
+                    ax_fft = fig.add_subplot(gs[0])
+                    ax_table_pdf = fig.add_subplot(gs[1])
+                    ax_table_pdf.axis("off")
+                    ax_ir = None
                 else:
-                    fig, ax_fft = plt.subplots(figsize=(10, 5))
+                    fig, ax_fft = plt.subplots(figsize=(10, 6))
+                    ax_table_pdf = None
+                    ax_ir = None
 
-                header = f"DistorLab – Informe d'anàlisi\nResultat: {result_text}"
-                fig.suptitle(header, fontsize=12, fontweight='bold')
+                # Títol principal, resultat i descripció introductòria
+                analysis_label = (self.selected_thd_type if self.selected_analysis_type == "THD"
+                                  else self.selected_imd_method)
+                fig.suptitle(
+                    f"DistorLab – Informe d'anàlisi {analysis_label}\nResultat: {result_text}",
+                    fontsize=12, fontweight='bold'
+                )
 
-                # FFT
-                N = len(self.signal)
-                spectrum = abs(np.fft.fft(self.signal)[:N//2])
-                freqs = np.fft.fftfreq(N, 1/self.fs)[:N//2]
-                positive = freqs > 0
-                freqs_p = freqs[positive]
-                spectrum_p = spectrum[positive]
-                if len(freqs_p) == 0:
-                    ax_fft.text(0.5, 0.5, "No hi ha dades FFT vàlides.", ha='center')
+                if intro_desc:
+                    desc_y = 0.915 if (is_thd_harmonic and harmonics_data) else 0.90
+                    fig.text(0.5, desc_y, intro_desc, ha='center', fontsize=9,
+                             color='#445566', style='italic')
+
+                # Gràfic principal: THD per segment (sweep) o FFT
+                if self.selected_analysis_type == "THD" and self.selected_thd_type == "THD_SWEEP":
+                    try:
+                        thd_values, sweep_freqs = compute_THD_sweep(self.signal, self.fs, num_partitions=10)
+                        ax_fft.semilogx(sweep_freqs, thd_values, color="#1e88e5",
+                                        linewidth=1.5, marker='o', markersize=4)
+                        ax_fft.set_xscale('log', nonpositive='clip')
+                        ax_fft.set_xlim([20, 20000])
+                        ax_fft.set_title("THD per segment (sweep)", fontsize=11)
+                        ax_fft.set_xlabel("Freqüència (Hz)")
+                        ax_fft.set_ylabel("THD (%)")
+                    except Exception:
+                        ax_fft.text(0.5, 0.5, "Error al calcular THD sweep.", ha='center')
                 else:
-                    eps = 1e-12
-                    spectrum_db = 20 * np.log10(spectrum_p / (np.max(spectrum_p) + eps) + eps)
-                    ax_fft.plot(freqs_p, spectrum_db, color="#1e88e5", linewidth=1.5)
-                    ax_fft.set_xscale('log', nonpositive='clip')
-                    ax_fft.set_xlim([20, 20000])
-                    ax_fft.set_ylim([np.min(spectrum_db) - 5, np.max(spectrum_db) + 5])
-                ax_fft.set_title("Resposta en freqüència (FFT)", fontsize=11)
-                ax_fft.set_xlabel("Freqüència (Hz)")
-                ax_fft.set_ylabel("Amplitud (dB rel.)")
+                    N = len(self.signal)
+                    spectrum = abs(np.fft.fft(self.signal)[:N//2])
+                    freqs = np.fft.fftfreq(N, 1/self.fs)[:N//2]
+                    positive = freqs > 0
+                    freqs_p = freqs[positive]
+                    spectrum_p = spectrum[positive]
+                    if len(freqs_p) == 0:
+                        ax_fft.text(0.5, 0.5, "No hi ha dades FFT vàlides.", ha='center')
+                    else:
+                        eps = 1e-12
+                        spectrum_db = 20 * np.log10(spectrum_p / (np.max(spectrum_p) + eps) + eps)
+                        ax_fft.plot(freqs_p, spectrum_db, color="#1e88e5", linewidth=1.5)
+                        ax_fft.set_xscale('log', nonpositive='clip')
+                        ax_fft.set_xlim([20, 20000])
+                        ax_fft.set_ylim([np.min(spectrum_db) - 5, np.max(spectrum_db) + 5])
+                    ax_fft.set_title("Resposta en freqüència (FFT)", fontsize=11)
+                    ax_fft.set_xlabel("Freqüència (Hz)")
+                    ax_fft.set_ylabel("Amplitud (dB rel.)")
                 ax_fft.grid(True, linestyle="--", alpha=0.4)
 
                 # IR (només Farina)
@@ -1812,7 +1763,32 @@ class AudioApp(tk.Tk):
                     ax_ir.set_ylabel("Amplitud")
                     ax_ir.grid(True, linestyle="--", alpha=0.4)
 
-                fig.tight_layout(rect=[0, 0, 1, 0.92])
+                # Taula THD per harmònic (THD_F / THD_RMS)
+                if ax_table_pdf is not None and harmonics_data:
+                    if self.selected_thd_type == "THD_F":
+                        col_labels = ["Harmònic", "Freq (Hz)", "THD_F (%)"]
+                        table_data = [
+                            [str(h["h"]), f"{h['freq']:.0f}", f"{h['thd_f_pct']:.2f}"]
+                            for h in harmonics_data
+                        ]
+                    else:
+                        col_labels = ["Harmònic", "Freq (Hz)", "THD_RMS (%)"]
+                        table_data = [
+                            [str(h["h"]), f"{h['freq']:.0f}", f"{h['thd_rms_pct']:.2f}"]
+                            for h in harmonics_data
+                        ]
+                    tbl = ax_table_pdf.table(
+                        cellText=table_data,
+                        colLabels=col_labels,
+                        loc="center",
+                        cellLoc="center",
+                    )
+                    tbl.auto_set_font_size(False)
+                    tbl.set_fontsize(10)
+                    tbl.scale(1.2, 1.6)
+
+                top_rect = 0.87 if (is_thd_harmonic and harmonics_data) else 0.85
+                fig.tight_layout(rect=[0, 0, 1, top_rect])
                 pdf.savefig(fig, bbox_inches='tight')
                 plt.close(fig)
 
