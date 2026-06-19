@@ -15,7 +15,7 @@ import sounddevice as sd
 from audio_input import record_audio, get_input_devices
 from analyzer_THD import plot_fft, extract_impulse_response, compute_THD_F, compute_THD_rms, compute_THDN, compute_THD_sweep, compute_THD_harmonic
 from analyzer_IMD import compute_IMD_smpte, compute_IMD_ccif
-from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_tanh, apply_nonlinear_distortion, synth_tone_with_thd, synth_tone_with_thd_and_noise, synth_two_tones, sweep_log
+from generator import sine, sweep_generator, sweep_generator_linear, soft_clip_tanh, apply_nonlinear_distortion, synth_tone_with_thd, synth_tone_with_thd_and_noise, synth_two_tones, sweep_log, generate_signal_with_target_imd_QUADRARTIC, generate_signal_with_target_imd_senar
 from custom_farina import Farina
 
 class AudioApp(tk.Tk):
@@ -857,6 +857,8 @@ class AudioApp(tk.Tk):
         else:
             self.signal = synth_two_tones(fs=fs, dur=2.0, f1=7000.0, f2=7600.0, amp1=0.45, amp2=0.45)
             default_name = "IMD_CCIF_signal.wav"
+            self.ccif_f1 = 7000.0
+            self.ccif_f2 = 7600.0
 
         self.fs = fs
 
@@ -933,9 +935,14 @@ class AudioApp(tk.Tk):
         thd_noise_btn.pack(pady=8)
 
         # Botó Sweep
-        sweep_btn = ttk.Button(main_frame, text="Sweep (logarítmic/lineal)", 
+        sweep_btn = ttk.Button(main_frame, text="Sweep (logarítmic/lineal)",
                               command=self.show_sweep_dialog, width=35)
         sweep_btn.pack(pady=8)
+
+        # Botó IMD
+        imd_btn = ttk.Button(main_frame, text="To amb IMD objectiu (SMPTE/CCIF)",
+                             command=self.show_synth_imd_dialog, width=35)
+        imd_btn.pack(pady=8)
 
     def add_distortion_controls(self, main_frame):
         """Afegeix els controls de selecció de distorsió (mètode i paràmetre) a un diàleg de generació"""
@@ -1236,6 +1243,67 @@ class AudioApp(tk.Tk):
             self.signal = self.apply_selected_generator_distortion(signal)
             self.distortion_applied = True
             self.show_simulator_result_screen()
+        except ValueError:
+            messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
+
+    def show_synth_imd_dialog(self):
+        """Diàleg per generar un to amb IMD objectiu"""
+        main_frame = self.build_screen("To amb IMD objectiu", back_command=self.show_generator_distortion_dialog)
+
+        imd_label = ttk.Label(main_frame, text="IMD objectiu (%):")
+        imd_label.pack(pady=5)
+        self.imd_target = ttk.Entry(main_frame, width=20)
+        self.imd_target.insert(0, "5.0")
+        self.imd_target.pack(pady=5)
+
+        method_label = ttk.Label(main_frame, text="Mètode IMD:")
+        method_label.pack(pady=5)
+        self.imd_method_var = tk.StringVar(value="SMPTE")
+        for method in ["SMPTE", "CCIF"]:
+            rb = ttk.Radiobutton(main_frame, text=method, variable=self.imd_method_var, value=method)
+            rb.pack(anchor=tk.W, padx=80, pady=2)
+
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+
+        info_smpte = ttk.Label(main_frame,
+                               text="SMPTE: f1=60 Hz, f2=7000 Hz, amp1=0.8, amp2=0.2, fs=48000 Hz",
+                               style="Muted.TLabel")
+        info_smpte.pack(pady=1)
+        info_ccif = ttk.Label(main_frame,
+                              text="CCIF: f1=19000 Hz, f2=20000 Hz, amp1=0.5, amp2=0.5, fs=48000 Hz",
+                              style="Muted.TLabel")
+        info_ccif.pack(pady=1)
+
+        generate_btn = ttk.Button(main_frame, text="Generar",
+                                 command=self.generate_synth_imd_signal, width=30)
+        generate_btn.pack(pady=20)
+
+    def generate_synth_imd_signal(self):
+        try:
+            target_imd = float(self.imd_target.get())
+            method = self.imd_method_var.get()
+
+            if target_imd <= 0:
+                messagebox.showerror("Error", "El valor d'IMD ha de ser positiu")
+                return
+
+            if method == "SMPTE":
+                signal, param, actual_imd, iterations = generate_signal_with_target_imd_QUADRARTIC(target_imd)
+                param_name = "alpha"
+            else:
+                signal, param, actual_imd, iterations = generate_signal_with_target_imd_senar(target_imd)
+                param_name = "dist"
+                self.ccif_f1 = 19000.0
+                self.ccif_f2 = 20000.0
+
+            self.original_signal = signal.copy()
+            self.fs = 48000
+            self.signal = signal
+            self.distortion_applied = True
+            self.show_simulator_result_screen()
+            self.simulator_status_label.config(
+                text=f"IMD real: {actual_imd:.2f}%  |  {param_name}: {param:.6f}  |  Iteracions: {iterations}"
+            )
         except ValueError:
             messagebox.showerror("Error", "Els paràmetres han de ser numèrics")
 
@@ -1544,7 +1612,9 @@ class AudioApp(tk.Tk):
         elif self.selected_analysis_type == "IMD":
             try:
                 if self.selected_imd_method == "CCIF":
-                    imd_value = compute_IMD_ccif(signal, fs, f1=7000.0, f2=7600.0)
+                    imd_value = compute_IMD_ccif(signal, fs,
+                                                 f1=getattr(self, 'ccif_f1', 7000.0),
+                                                 f2=getattr(self, 'ccif_f2', 7600.0))
                     self.thd_label.config(text=f"IMD (CCIF): {imd_value:.2f}%")
                 else:
                     imd_value = compute_IMD_smpte(signal, fs, f1=60.0, f2=7000.0)
