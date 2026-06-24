@@ -3,3 +3,4 @@ scipy
 matplotlib
 sounddevice
 pyqt5
+audio_dspy
